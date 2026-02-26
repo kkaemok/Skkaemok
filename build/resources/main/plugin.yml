@@ -1,0 +1,5 @@
+name: skkaemok
+version: '1.3-SNAPSHOT'
+main: org.kkaemok.skkaemok.Skkaemok
+api-version: '1.21'
+depend: [ProtocolLib, Skript]
