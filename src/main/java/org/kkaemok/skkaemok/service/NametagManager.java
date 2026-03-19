@@ -41,20 +41,34 @@ public final class NametagManager {
         if (target == null || customName == null) {
             return;
         }
-        WrappedChatComponent displayName = toWrappedComponent(Component.text(customName));
-        for (Player viewer : Bukkit.getOnlinePlayers()) {
-            updatePlayerNameTag(target, viewer, customName, displayName);
-        }
+        updateForAllViewers(target, customName, null);
     }
 
     public void updateForViewer(Player target, Player viewer, String customName) {
         if (target == null || viewer == null || customName == null) {
             return;
         }
-        updatePlayerNameTag(target, viewer, customName, toWrappedComponent(Component.text(customName)));
+        updateForViewer(target, viewer, customName, null);
     }
 
-    private void updatePlayerNameTag(Player target, Player viewer, String customName, WrappedChatComponent displayName) {
+    public void updateForAllViewers(Player target, String customName, SkinData skinData) {
+        if (target == null || customName == null) {
+            return;
+        }
+        WrappedChatComponent displayName = toWrappedComponent(Component.text(customName));
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            updatePlayerNameTag(target, viewer, customName, displayName, skinData);
+        }
+    }
+
+    public void updateForViewer(Player target, Player viewer, String customName, SkinData skinData) {
+        if (target == null || viewer == null || customName == null) {
+            return;
+        }
+        updatePlayerNameTag(target, viewer, customName, toWrappedComponent(Component.text(customName)), skinData);
+    }
+
+    private void updatePlayerNameTag(Player target, Player viewer, String customName, WrappedChatComponent displayName, SkinData skinData) {
         if (!target.isOnline() || !viewer.isOnline()) {
             return;
         }
@@ -81,8 +95,19 @@ public final class NametagManager {
 
             WrappedGameProfile originalProfile = WrappedGameProfile.fromPlayer(target);
             WrappedGameProfile customProfile = new WrappedGameProfile(originalProfile.getUUID(), customName);
-            for (WrappedSignedProperty prop : originalProfile.getProperties().values()) {
-                customProfile.getProperties().put(prop.getName(), prop);
+            boolean hasCustomSkin = skinData != null && skinData.isValid();
+            var properties = originalProfile.getProperties();
+            for (String key : properties.keySet()) {
+                for (WrappedSignedProperty prop : properties.get(key)) {
+                    if (hasCustomSkin && "textures".equals(prop.getName())) {
+                        continue;
+                    }
+                    customProfile.getProperties().put(prop.getName(), prop);
+                }
+            }
+            if (hasCustomSkin) {
+                customProfile.getProperties().put("textures",
+                        new WrappedSignedProperty("textures", skinData.getValue(), skinData.getSignature()));
             }
 
             WrappedRemoteChatSessionData chatSession = WrappedRemoteChatSessionData.fromPlayer(target);

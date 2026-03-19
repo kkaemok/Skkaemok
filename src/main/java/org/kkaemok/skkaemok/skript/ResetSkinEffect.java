@@ -9,23 +9,23 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.kkaemok.skkaemok.service.NicknameService;
+import org.kkaemok.skkaemok.service.SkinService;
 
 @SuppressWarnings("unchecked")
-public final class ResetNametagEffect extends Effect {
+public final class ResetSkinEffect extends Effect {
     private static JavaPlugin plugin;
-    private static NicknameService nicknameService;
+    private static SkinService skinService;
 
     private Expression<Player> targetPlayerExpr;
     private Expression<String> targetNameExpr;
     private boolean targetIsName;
 
-    public static void bootstrap(JavaPlugin plugin, NicknameService nicknameService) {
-        ResetNametagEffect.plugin = plugin;
-        ResetNametagEffect.nicknameService = nicknameService;
-        Skript.registerEffect(ResetNametagEffect.class,
-                "reset nametag of %player%",
-                "reset nametag of %string%"
+    public static void bootstrap(JavaPlugin plugin, SkinService skinService) {
+        ResetSkinEffect.plugin = plugin;
+        ResetSkinEffect.skinService = skinService;
+        Skript.registerEffect(ResetSkinEffect.class,
+                "reset skin of %player%",
+                "reset skin of %string%"
         );
     }
 
@@ -43,17 +43,18 @@ public final class ResetNametagEffect extends Effect {
 
     @Override
     protected void execute(Event event) {
+        if (skinService == null) {
+            if (plugin != null) {
+                plugin.getLogger().severe("SkinService not initialized.");
+            }
+            return;
+        }
+
         Player target = resolveTarget(event);
         if (target == null) {
             return;
         }
-        if (nicknameService == null) {
-            if (plugin != null) {
-                plugin.getLogger().severe("NicknameService not initialized.");
-            }
-            return;
-        }
-        nicknameService.resetNickname(target);
+        skinService.resetSkin(target);
     }
 
     private Player resolveTarget(Event event) {
@@ -73,6 +74,6 @@ public final class ResetNametagEffect extends Effect {
 
     @Override
     public String toString(Event event, boolean debug) {
-        return "reset nametag effect";
+        return "reset skin effect";
     }
 }

@@ -7,13 +7,15 @@ public final class NicknameService {
 
     private final NameManager nameManager;
     private final NametagManager nametagManager;
+    private final SkinManager skinManager;
 
-    public NicknameService(NameManager nameManager, NametagManager nametagManager) {
-        if (nameManager == null || nametagManager == null) {
-            throw new IllegalArgumentException("NameManager and NametagManager cannot be null");
+    public NicknameService(NameManager nameManager, NametagManager nametagManager, SkinManager skinManager) {
+        if (nameManager == null || nametagManager == null || skinManager == null) {
+            throw new IllegalArgumentException("NameManager, NametagManager, and SkinManager cannot be null");
         }
         this.nameManager = nameManager;
         this.nametagManager = nametagManager;
+        this.skinManager = skinManager;
     }
 
     public boolean setNickname(Player player, String nickname) {
@@ -29,7 +31,8 @@ public final class NicknameService {
             return false;
         }
         nameManager.setNickname(player, normalized);
-        nametagManager.updateForAllViewers(player, normalized);
+        SkinData skinData = skinManager.getRawSkin(player);
+        nametagManager.updateForAllViewers(player, normalized, skinData);
         return true;
     }
 
@@ -38,7 +41,8 @@ public final class NicknameService {
             return;
         }
         nameManager.resetNickname(player);
-        nametagManager.updateForAllViewers(player, player.getName());
+        SkinData skinData = skinManager.getRawSkin(player);
+        nametagManager.updateForAllViewers(player, player.getName(), skinData);
     }
 
     public String resolveNickname(Player player) {

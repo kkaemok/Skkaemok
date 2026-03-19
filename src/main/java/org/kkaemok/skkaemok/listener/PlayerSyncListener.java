@@ -8,16 +8,20 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.kkaemok.skkaemok.service.NameManager;
 import org.kkaemok.skkaemok.service.NametagManager;
+import org.kkaemok.skkaemok.service.SkinData;
+import org.kkaemok.skkaemok.service.SkinManager;
 
 public final class PlayerSyncListener implements Listener {
     private final NameManager nameManager;
+    private final SkinManager skinManager;
     private final NametagManager nametagManager;
 
-    public PlayerSyncListener(NameManager nameManager, NametagManager nametagManager) {
-        if (nameManager == null || nametagManager == null) {
+    public PlayerSyncListener(NameManager nameManager, SkinManager skinManager, NametagManager nametagManager) {
+        if (nameManager == null || skinManager == null || nametagManager == null) {
             throw new IllegalArgumentException("Managers cannot be null");
         }
         this.nameManager = nameManager;
+        this.skinManager = skinManager;
         this.nametagManager = nametagManager;
     }
 
@@ -27,14 +31,18 @@ public final class PlayerSyncListener implements Listener {
 
         for (Player target : Bukkit.getOnlinePlayers()) {
             String nickname = nameManager.getRawNickname(target);
-            if (nickname != null) {
-                nametagManager.updateForViewer(target, viewer, nickname);
+            SkinData skinData = skinManager.getRawSkin(target);
+            if (nickname != null || skinData != null) {
+                String displayName = nameManager.loadNickname(target);
+                nametagManager.updateForViewer(target, viewer, displayName, skinData);
             }
         }
 
         String viewerNickname = nameManager.getRawNickname(viewer);
-        if (viewerNickname != null) {
-            nametagManager.updateForAllViewers(viewer, viewerNickname);
+        SkinData viewerSkin = skinManager.getRawSkin(viewer);
+        if (viewerNickname != null || viewerSkin != null) {
+            String displayName = nameManager.loadNickname(viewer);
+            nametagManager.updateForAllViewers(viewer, displayName, viewerSkin);
         }
     }
 

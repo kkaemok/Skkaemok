@@ -11,6 +11,7 @@ import org.bukkit.event.Event;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.kkaemok.skkaemok.service.NicknameService;
 
+@SuppressWarnings("unchecked")
 public final class SetNametagEffect extends Effect {
     private static JavaPlugin plugin;
     private static NicknameService nicknameService;
@@ -30,14 +31,14 @@ public final class SetNametagEffect extends Effect {
     }
 
     @Override
-    public boolean init(Expression<?>[] exprs, int matchedPattern, Kleenean isDelayed, SkriptParser.ParseResult parseResult) {
+    public boolean init(Expression<?>[] expressions, int matchedPattern, Kleenean isDelayed, SkriptParser.ParseResult parseResult) {
         if (matchedPattern == 0) {
-            targetPlayerExpr = (Expression<Player>) exprs[0];
-            nicknameExpr = (Expression<String>) exprs[1];
+            targetPlayerExpr = (Expression<Player>) expressions[0];
+            nicknameExpr = (Expression<String>) expressions[1];
             targetIsName = false;
         } else {
-            targetNameExpr = (Expression<String>) exprs[0];
-            nicknameExpr = (Expression<String>) exprs[1];
+            targetNameExpr = (Expression<String>) expressions[0];
+            nicknameExpr = (Expression<String>) expressions[1];
             targetIsName = true;
         }
         return true;

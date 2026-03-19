@@ -1,0 +1,9 @@
+# noinspection SpellCheckingInspection
+skin:
+  mojang:
+    api-base: "https://api.mojang.com"
+    session-base: "https://sessionserver.mojang.com"
+    connect-timeout-ms: 5000
+    read-timeout-ms: 10000
+  url:
+    allow-unsigned: true
