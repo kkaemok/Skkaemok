@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'org.kkaemok'
-version = '1.4 Snapshot 3'
+version = '1.4-SNAPSHOT'
 
 repositories {
     mavenCentral()

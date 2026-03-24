@@ -2,7 +2,7 @@ name: skkaemok
 description: A Skript addon focused on changing player nametags, skins, and more
 author: kkaemok
 website: https://github.com/kkaemok/Skkaemok
-version: '1.4 Snapshot 3'
+version: '1.4-SNAPSHOT'
 main: org.kkaemok.skkaemok.Skkaemok
 api-version: '1.21'
 depend: [ProtocolLib, Skript]

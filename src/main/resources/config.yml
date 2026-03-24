@@ -1,9 +1,20 @@
-# noinspection SpellCheckingInspection
+# Skkaemok config v1.4 snapshot 4
 skin:
   mojang:
     api-base: "https://api.mojang.com"
     session-base: "https://sessionserver.mojang.com"
     connect-timeout-ms: 5000
     read-timeout-ms: 10000
+  mineskin:
+    api-base: "https://api.mineskin.org"
+    api-key: ""
+    user-agent: ""
+    visibility: "unlisted"
+    variant: "auto"
+    use-queue: true
+    poll-interval-ms: 1000
+    max-poll-seconds: 30
+    request-timeout-ms: 15000
+    require-api-key: false
   url:
-    allow-unsigned: true
+    allow-unsigned: false
