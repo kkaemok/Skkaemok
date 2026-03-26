@@ -32,7 +32,10 @@ reset nametag of %string%
 ```skript
 set skin of %player% to %string%
 set skin of %string% to %string%
-set skin of %player% to url 
+set skin of %player% to url %string%
+set skin of %string% to url %string%
+reset skin of %player%
+reset skin of %string%
 ```
 
 ### Example: /nick Command
