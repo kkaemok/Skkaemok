@@ -1,4 +1,4 @@
-# Skkaemok config v1.4 snapshot 4
+# Skkaemok config 1.4-SNAPSHOT-20260324
 skin:
   mojang:
     api-base: "https://api.mojang.com"
@@ -18,3 +18,28 @@ skin:
     require-api-key: false
   url:
     allow-unsigned: false
+
+integration:
+  tab:
+    # mode: AUTO | ON | OFF | PRIORITY
+    # AUTO     -> TAB 감지 시 내부 탭/이름표 관리를 TAB에 위임
+    # ON       -> 항상 TAB에 위임
+    # OFF      -> TAB이 있어도 이 플러그인이 직접 관리
+    # PRIORITY -> TAB이 있어도 직접 관리 + 지연 후 다시 적용
+    mode: PRIORITY
+    # true면 탭리스트 이름은 TAB의 customtabname API로만 갱신
+    use-customtabname: true
+    priority:
+      delay-ticks: 10
+  luckperms:
+    enabled: true
+
+# Formatting mode: auto | legacy | minimessage
+format:
+  luckperms: auto
+  nickname: auto
+  output: auto
+
+# Output template token: %prefix% %nickname% %suffix% %original%
+output:
+  tablist: "%prefix%%nickname%%suffix%"

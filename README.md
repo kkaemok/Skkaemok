@@ -1,17 +1,16 @@
 # skkaemok
 
-A Skript addon that lets you change player **nametags**, **tablist names**, **chat names**, and **skins** with simple a few simple syntaxes.
+A Skript addon that lets you change player **nametags**, **tablist names**, and **chat names** with simple a few simple syntaxes.
 
 ## Features
 - Change player nametags
 - Change tablist and chat display names
-- Change player skins
 - Supports non‑English languages
 - Simple, lightweight syntax
 
 ## Requirements
 - Minecraft: 1.21+
-- Skript: 2.10–2.12 (required)
+- Skript: 2.10–2.12
 - ProtocolLib (required)
 
 ## Installation
@@ -28,16 +27,6 @@ set nametag of %string% to %string%
 reset nametag of %player%
 reset nametag of %string%
 ```
-
-```skript
-set skin of %player% to %string%
-set skin of %string% to %string%
-set skin of %player% to url %string%
-set skin of %string% to url %string%
-reset skin of %player%
-reset skin of %string%
-```
-
 ### Example: /nick Command
 ```skript
 command /nick <text>:

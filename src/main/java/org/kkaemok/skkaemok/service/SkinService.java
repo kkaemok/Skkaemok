@@ -34,22 +34,22 @@ public final class SkinService {
     private final SkinManager skinManager;
     private final NametagManager nametagManager;
     private final Gson gson;
-    private final HttpClient httpClient;
-    private final String profileApiBase;
-    private final String sessionApiBase;
-    private final Duration requestTimeout;
-    private final String mineSkinApiBase;
-    private final String mineSkinApiKey;
-    private final String mineSkinUserAgent;
-    private final String mineSkinVisibility;
-    private final String mineSkinVariant;
-    private final boolean useMineSkinQueue;
-    private final boolean requireMineSkinKey;
-    private final long mineSkinPollIntervalMs;
-    private final long mineSkinMaxPollMs;
-    private final Duration mineSkinRequestTimeout;
-    private final boolean allowUnsignedUrl;
     private final AtomicBoolean warnedNoKey;
+    private HttpClient httpClient;
+    private String profileApiBase;
+    private String sessionApiBase;
+    private Duration requestTimeout;
+    private String mineSkinApiBase;
+    private String mineSkinApiKey;
+    private String mineSkinUserAgent;
+    private String mineSkinVisibility;
+    private String mineSkinVariant;
+    private boolean useMineSkinQueue;
+    private boolean requireMineSkinKey;
+    private long mineSkinPollIntervalMs;
+    private long mineSkinMaxPollMs;
+    private Duration mineSkinRequestTimeout;
+    private boolean allowUnsignedUrl;
 
     public SkinService(JavaPlugin plugin, NameManager nameManager, SkinManager skinManager, NametagManager nametagManager) {
         if (plugin == null || nameManager == null || skinManager == null || nametagManager == null) {
@@ -60,31 +60,51 @@ public final class SkinService {
         this.skinManager = skinManager;
         this.nametagManager = nametagManager;
         this.gson = new Gson();
+        this.warnedNoKey = new AtomicBoolean(false);
+        reloadConfig();
+    }
 
+    public void reloadConfig() {
         FileConfiguration config = plugin.getConfig();
-        this.profileApiBase = config.getString("skin.mojang.api-base", "https://api.mojang.com");
-        this.sessionApiBase = config.getString("skin.mojang.session-base", "https://sessionserver.mojang.com");
+        String profileApiBase = config.getString("skin.mojang.api-base", "https://api.mojang.com");
+        String sessionApiBase = config.getString("skin.mojang.session-base", "https://sessionserver.mojang.com");
         long connectTimeoutMs = config.getLong("skin.mojang.connect-timeout-ms", 5000L);
         long readTimeoutMs = config.getLong("skin.mojang.read-timeout-ms", 10000L);
-        this.requestTimeout = Duration.ofMillis(Math.max(1000L, readTimeoutMs));
-        this.httpClient = HttpClient.newBuilder()
+        Duration requestTimeout = Duration.ofMillis(Math.max(1000L, readTimeoutMs));
+        HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(Math.max(1000L, connectTimeoutMs)))
                 .build();
-        this.mineSkinApiBase = normalizeApiBase(config.getString("skin.mineskin.api-base", "https://api.mineskin.org"));
-        this.mineSkinApiKey = trimToNull(config.getString("skin.mineskin.api-key", ""));
+        String mineSkinApiBase = normalizeApiBase(config.getString("skin.mineskin.api-base", "https://api.mineskin.org"));
+        String mineSkinApiKey = trimToNull(config.getString("skin.mineskin.api-key", ""));
         String defaultUserAgent = plugin.getName();
-        this.mineSkinUserAgent = normalizeUserAgent(config.getString("skin.mineskin.user-agent", ""), defaultUserAgent);
-        this.mineSkinVisibility = normalizeVisibility(config.getString("skin.mineskin.visibility", "unlisted"));
-        this.mineSkinVariant = normalizeVariant(config.getString("skin.mineskin.variant", "auto"));
-        this.useMineSkinQueue = config.getBoolean("skin.mineskin.use-queue", true);
-        this.requireMineSkinKey = config.getBoolean("skin.mineskin.require-api-key", false);
-        this.mineSkinPollIntervalMs = Math.max(1000L, config.getLong("skin.mineskin.poll-interval-ms", 1000L));
+        String mineSkinUserAgent = normalizeUserAgent(config.getString("skin.mineskin.user-agent", ""), defaultUserAgent);
+        String mineSkinVisibility = normalizeVisibility(config.getString("skin.mineskin.visibility", "unlisted"));
+        String mineSkinVariant = normalizeVariant(config.getString("skin.mineskin.variant", "auto"));
+        boolean useMineSkinQueue = config.getBoolean("skin.mineskin.use-queue", true);
+        boolean requireMineSkinKey = config.getBoolean("skin.mineskin.require-api-key", false);
+        long mineSkinPollIntervalMs = Math.max(1000L, config.getLong("skin.mineskin.poll-interval-ms", 1000L));
         long maxPollSeconds = config.getLong("skin.mineskin.max-poll-seconds", 30L);
-        this.mineSkinMaxPollMs = Math.max(1000L, maxPollSeconds * 1000L);
+        long mineSkinMaxPollMs = Math.max(1000L, maxPollSeconds * 1000L);
         long mineSkinTimeoutMs = config.getLong("skin.mineskin.request-timeout-ms", 15000L);
-        this.mineSkinRequestTimeout = Duration.ofMillis(Math.max(1000L, mineSkinTimeoutMs));
-        this.allowUnsignedUrl = config.getBoolean("skin.url.allow-unsigned", false);
-        this.warnedNoKey = new AtomicBoolean(false);
+        Duration mineSkinRequestTimeout = Duration.ofMillis(Math.max(1000L, mineSkinTimeoutMs));
+        boolean allowUnsignedUrl = config.getBoolean("skin.url.allow-unsigned", false);
+
+        this.profileApiBase = profileApiBase;
+        this.sessionApiBase = sessionApiBase;
+        this.requestTimeout = requestTimeout;
+        this.httpClient = httpClient;
+        this.mineSkinApiBase = mineSkinApiBase;
+        this.mineSkinApiKey = mineSkinApiKey;
+        this.mineSkinUserAgent = mineSkinUserAgent;
+        this.mineSkinVisibility = mineSkinVisibility;
+        this.mineSkinVariant = mineSkinVariant;
+        this.useMineSkinQueue = useMineSkinQueue;
+        this.requireMineSkinKey = requireMineSkinKey;
+        this.mineSkinPollIntervalMs = mineSkinPollIntervalMs;
+        this.mineSkinMaxPollMs = mineSkinMaxPollMs;
+        this.mineSkinRequestTimeout = mineSkinRequestTimeout;
+        this.allowUnsignedUrl = allowUnsignedUrl;
+        this.warnedNoKey.set(false);
     }
 
     public boolean setSkinFromPlayer(Player target, Player source) {
@@ -156,7 +176,8 @@ public final class SkinService {
         }
         skinManager.resetSkin(target);
         String displayName = nameManager.loadNickname(target);
-        nametagManager.updateForAllViewers(target, displayName, null);
+        boolean nicknameActive = nameManager.hasNickname(target);
+        nametagManager.updateForAllViewers(target, displayName, nicknameActive, null);
     }
 
     private void applySkin(Player target, SkinData skinData) {
@@ -171,7 +192,8 @@ public final class SkinService {
             if (target.isOnline()) {
                 applySelfProfile(target, skinData);
                 String displayName = nameManager.loadNickname(target);
-                nametagManager.updateForAllViewers(target, displayName, skinData);
+                boolean nicknameActive = nameManager.hasNickname(target);
+                nametagManager.updateForAllViewers(target, displayName, nicknameActive, skinData);
                 scheduleSelfRefresh(target, skinData);
             }
         };
@@ -219,7 +241,8 @@ public final class SkinService {
                 return;
             }
             String displayName = nameManager.loadNickname(target);
-            nametagManager.updateForViewer(target, target, displayName, skinData);
+            boolean nicknameActive = nameManager.hasNickname(target);
+            nametagManager.updateForViewer(target, target, displayName, nicknameActive, skinData);
         }, 2L);
     }
 

@@ -68,6 +68,11 @@ public final class SkinManager {
         return Map.copyOf(skins);
     }
 
+    public void reload() {
+        skins.clear();
+        skins.putAll(storage.load());
+    }
+
     public void saveNow() {
         storage.save(skins);
     }

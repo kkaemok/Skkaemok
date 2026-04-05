@@ -32,7 +32,7 @@ public final class NicknameService {
         }
         nameManager.setNickname(player, normalized);
         SkinData skinData = skinManager.getRawSkin(player);
-        nametagManager.updateForAllViewers(player, normalized, skinData);
+        nametagManager.updateForAllViewers(player, normalized, true, skinData);
         return true;
     }
 
@@ -42,10 +42,24 @@ public final class NicknameService {
         }
         nameManager.resetNickname(player);
         SkinData skinData = skinManager.getRawSkin(player);
-        nametagManager.updateForAllViewers(player, player.getName(), skinData);
+        nametagManager.updateForAllViewers(player, player.getName(), false, skinData);
+    }
+
+    public void refreshDisplay(Player player) {
+        if (player == null) {
+            return;
+        }
+        String nickname = nameManager.loadNickname(player);
+        boolean nicknameActive = nameManager.hasNickname(player);
+        SkinData skinData = skinManager.getRawSkin(player);
+        nametagManager.updateForAllViewers(player, nickname, nicknameActive, skinData);
     }
 
     public String resolveNickname(Player player) {
         return nameManager.loadNickname(player);
+    }
+
+    public void reload() {
+        nametagManager.reload();
     }
 }

@@ -1,8 +1,14 @@
 package org.kkaemok.skkaemok;
 
 import ch.njol.skript.Skript;
+import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.kkaemok.skkaemok.command.SkkaemokCommand;
+import org.kkaemok.skkaemok.integration.LuckPermsHook;
+import org.kkaemok.skkaemok.integration.TabCustomNameBridge;
+import org.kkaemok.skkaemok.integration.TabIntegration;
 import org.kkaemok.skkaemok.listener.AdvancementListener;
 import org.kkaemok.skkaemok.listener.ChatListener;
 import org.kkaemok.skkaemok.listener.CommandInterceptor;
@@ -25,17 +31,21 @@ public final class Skkaemok extends JavaPlugin {
     private NametagManager nametagManager;
     private NicknameService nicknameService;
     private SkinService skinService;
+    private LuckPermsHook luckPermsHook;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
 
-        if (!isPluginPresent("ProtocolLib")) {
+        int pluginId = 30391;
+        new Metrics(this, pluginId);
+
+        if (isPluginMissing("ProtocolLib")) {
             getLogger().severe("ProtocolLib is required.");
             Bukkit.getPluginManager().disablePlugin(this);
             return;
         }
-        if (!isPluginPresent("Skript")) {
+        if (isPluginMissing("Skript")) {
             getLogger().severe("Skript is required.");
             Bukkit.getPluginManager().disablePlugin(this);
             return;
@@ -45,9 +55,18 @@ public final class Skkaemok extends JavaPlugin {
         SkinStorage skinStorage = new SkinStorage(this);
         this.nameManager = new NameManager(storage);
         this.skinManager = new SkinManager(skinStorage);
-        this.nametagManager = new NametagManager(this);
+        TabIntegration tabIntegration = new TabIntegration(this);
+        this.luckPermsHook = new LuckPermsHook(this);
+        TabCustomNameBridge tabCustomNameBridge = new TabCustomNameBridge(this, tabIntegration);
+        this.nametagManager = new NametagManager(this, tabIntegration, luckPermsHook, tabCustomNameBridge);
         this.nicknameService = new NicknameService(nameManager, nametagManager, skinManager);
         this.skinService = new SkinService(this, nameManager, skinManager, nametagManager);
+        luckPermsHook.registerMetaListener(uuid -> {
+            var player = Bukkit.getPlayer(uuid);
+            if (player != null) {
+                nicknameService.refreshDisplay(player);
+            }
+        });
 
         Bukkit.getPluginManager().registerEvents(new ChatListener(nameManager), this);
         Bukkit.getPluginManager().registerEvents(new CommandInterceptor(nameManager), this);
@@ -58,18 +77,18 @@ public final class Skkaemok extends JavaPlugin {
         Skript.registerAddon(this);
         NametagEffects.register(this, nicknameService, skinService);
 
-        Bukkit.getOnlinePlayers().forEach(player -> {
-            String nickname = nameManager.getRawNickname(player);
-            SkinData skinData = skinManager.getRawSkin(player);
-            if (nickname != null || skinData != null) {
-                String displayName = nameManager.loadNickname(player);
-                nametagManager.updateForAllViewers(player, displayName, skinData);
-            }
-        });
+        registerCommands();
+        refreshOnlinePlayers();
     }
 
     @Override
     public void onDisable() {
+        if (luckPermsHook != null) {
+            luckPermsHook.close();
+        }
+        if (nametagManager != null) {
+            nametagManager.close();
+        }
         if (nameManager != null) {
             nameManager.saveNow();
         }
@@ -78,11 +97,51 @@ public final class Skkaemok extends JavaPlugin {
         }
     }
 
-    private boolean isPluginPresent(String name) {
-        return Bukkit.getPluginManager().getPlugin(name) != null;
+    private boolean isPluginMissing(String name) {
+        return Bukkit.getPluginManager().getPlugin(name) == null;
     }
 
-    public NicknameService getNicknameService() {
-        return nicknameService;
+    public void reloadSkkaemok() {
+        reloadConfig();
+        if (skinService != null) {
+            skinService.reloadConfig();
+        }
+        if (nicknameService != null) {
+            nicknameService.reload();
+        }
+        if (nameManager != null) {
+            nameManager.reload();
+        }
+        if (skinManager != null) {
+            skinManager.reload();
+        }
+        refreshOnlinePlayers();
     }
+
+    private void refreshOnlinePlayers() {
+        if (nameManager == null || skinManager == null || nametagManager == null) {
+            return;
+        }
+        Bukkit.getOnlinePlayers().forEach(player -> {
+            String nickname = nameManager.getRawNickname(player);
+            SkinData skinData = skinManager.getRawSkin(player);
+            boolean nicknameActive = nickname != null;
+            if (nicknameActive || skinData != null) {
+                String displayName = nameManager.loadNickname(player);
+                nametagManager.updateForAllViewers(player, displayName, nicknameActive, skinData);
+            }
+        });
+    }
+
+    private void registerCommands() {
+        PluginCommand command = getCommand("skkaemok");
+        if (command == null) {
+            getLogger().severe("Command 'skkaemok' not found in plugin.yml.");
+            return;
+        }
+        SkkaemokCommand executor = new SkkaemokCommand(this);
+        command.setExecutor(executor);
+        command.setTabCompleter(executor);
+    }
+
 }

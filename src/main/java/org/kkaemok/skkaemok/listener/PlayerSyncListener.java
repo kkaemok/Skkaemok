@@ -30,24 +30,26 @@ public final class PlayerSyncListener implements Listener {
         Player viewer = event.getPlayer();
 
         for (Player target : Bukkit.getOnlinePlayers()) {
-            String nickname = nameManager.getRawNickname(target);
+            String rawNickname = nameManager.getRawNickname(target);
             SkinData skinData = skinManager.getRawSkin(target);
-            if (nickname != null || skinData != null) {
+            boolean nicknameActive = rawNickname != null;
+            if (nicknameActive || skinData != null) {
                 String displayName = nameManager.loadNickname(target);
-                nametagManager.updateForViewer(target, viewer, displayName, skinData);
+                nametagManager.updateForViewer(target, viewer, displayName, nicknameActive, skinData);
             }
         }
 
         String viewerNickname = nameManager.getRawNickname(viewer);
         SkinData viewerSkin = skinManager.getRawSkin(viewer);
-        if (viewerNickname != null || viewerSkin != null) {
+        boolean viewerNicknameActive = viewerNickname != null;
+        if (viewerNicknameActive || viewerSkin != null) {
             String displayName = nameManager.loadNickname(viewer);
-            nametagManager.updateForAllViewers(viewer, displayName, viewerSkin);
+            nametagManager.updateForAllViewers(viewer, displayName, viewerNicknameActive, viewerSkin);
         }
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        // No-op for now, kept for future cleanup or persistence.
+        nametagManager.removePlayer(event.getPlayer());
     }
 }

@@ -59,6 +59,11 @@ public final class NameManager {
         return Map.copyOf(nicknames);
     }
 
+    public void reload() {
+        nicknames.clear();
+        nicknames.putAll(storage.load());
+    }
+
     public void saveNow() {
         storage.save(nicknames);
     }
