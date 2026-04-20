@@ -93,7 +93,7 @@ public final class TabCustomNameBridge {
                 Class<?> tabApiClass = Class.forName("me.neznamy.tab.api.TabAPI", true, classLoader);
                 Class<?> tabPlayerClass = Class.forName("me.neznamy.tab.api.TabPlayer", true, classLoader);
                 Class<?> managerClass = Class.forName(
-                        "me.neznamy.tab.api.tablist.nameformatting.TabListFormatManager",
+                        "me.neznamy.tab.api.tablist.TabListFormatManager",
                         true,
                         classLoader
                 );
