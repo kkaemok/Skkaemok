@@ -1,5 +1,7 @@
 # skkaemok
 
+[![bStats](https://img.shields.io/bstats/players/30391?style=for-the-badge&label=bStats)](https://bstats.org/plugin/bukkit/Skkaemok/30391)
+
 A Skript addon that lets you change player **nametags**, **tablist names**, and **chat names** with simple a few simple syntaxes.
 
 ## Features
