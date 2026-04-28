@@ -63,7 +63,7 @@ command /nick <text> <text>:
 ```
 ### Example: /skin Command
 ```skript
-command /skin <text> <text>:
+command /skin <text> [<text>]:
     trigger:
         if arg-1 is "reset":
             reset skin of player
@@ -75,7 +75,7 @@ command /skin <text> <text>:
                 stop
 
             if arg-2 starts with "http":
-                set skin of player to arg-2
+                set skin of player to url arg-2
                 stop
 
             set skin of player to arg-2
