@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "org.kkaemok"
-version = "1.5-SNAPSHOT"
+version = "1.6"
 
 repositories {
     mavenCentral()
@@ -28,6 +28,15 @@ repositories {
 }
 
 dependencies {
+    constraints {
+        compileOnly("org.apache.commons:commons-lang3:3.20.0") {
+            because("Resolve CVE-2025-48924 from Paper API transitive dependencies")
+        }
+        compileOnly("org.codehaus.plexus:plexus-utils:4.0.3") {
+            because("Resolve CVE-2025-67030 from Paper API transitive dependencies")
+        }
+    }
+
     compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
     compileOnly("com.comphenix.protocol:ProtocolLib:5.3.0")
     compileOnly("com.github.SkriptLang:Skript:2.9.1")

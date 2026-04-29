@@ -1,8 +1,10 @@
 package org.kkaemok.skkaemok.listener;
 
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -25,9 +27,10 @@ public final class PlayerSyncListener implements Listener {
         this.nametagManager = nametagManager;
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onJoin(PlayerJoinEvent event) {
         Player viewer = event.getPlayer();
+        applyNicknameToJoinMessage(event, viewer);
 
         for (Player target : Bukkit.getOnlinePlayers()) {
             String rawNickname = nameManager.getRawNickname(target);
@@ -48,8 +51,41 @@ public final class PlayerSyncListener implements Listener {
         }
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onQuit(PlayerQuitEvent event) {
-        nametagManager.removePlayer(event.getPlayer());
+        Player player = event.getPlayer();
+        applyNicknameToQuitMessage(event, player);
+        nametagManager.removePlayer(player);
+    }
+
+    private void applyNicknameToJoinMessage(PlayerJoinEvent event, Player player) {
+        Component originalMessage = event.joinMessage();
+        if (originalMessage == null) {
+            return;
+        }
+        String nickname = nameManager.loadNickname(player);
+        if (player.getName().equals(nickname)) {
+            return;
+        }
+        event.joinMessage(replaceOriginalName(originalMessage, player, nickname));
+    }
+
+    private void applyNicknameToQuitMessage(PlayerQuitEvent event, Player player) {
+        Component originalMessage = event.quitMessage();
+        if (originalMessage == null) {
+            return;
+        }
+        String nickname = nameManager.loadNickname(player);
+        if (player.getName().equals(nickname)) {
+            return;
+        }
+        event.quitMessage(replaceOriginalName(originalMessage, player, nickname));
+    }
+
+    private Component replaceOriginalName(Component message, Player player, String nickname) {
+        return message.replaceText(builder ->
+                builder.matchLiteral(player.getName())
+                        .replacement(Component.text(nickname))
+        );
     }
 }

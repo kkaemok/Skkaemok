@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -175,9 +176,19 @@ public final class SkinService {
             return;
         }
         skinManager.resetSkin(target);
-        String displayName = nameManager.loadNickname(target);
-        boolean nicknameActive = nameManager.hasNickname(target);
-        nametagManager.updateForAllViewers(target, displayName, nicknameActive, null);
+        UUID uuid = target.getUniqueId();
+        fetchSkinFromUuid(uuid).thenAccept(skinData -> {
+            if (skinData != null) {
+                applyResolvedOriginalSkin(target, skinData);
+                return;
+            }
+            warn("Failed to fetch original Mojang skin for " + target.getName() + " (" + uuid + ")");
+            refreshNametagWithoutCustomSkin(target);
+        }).exceptionally(ex -> {
+            warn("Error resetting skin for " + target.getName() + ": " + ex.getMessage());
+            refreshNametagWithoutCustomSkin(target);
+            return null;
+        });
     }
 
     private void applySkin(Player target, SkinData skinData) {
@@ -246,6 +257,40 @@ public final class SkinService {
         }, 2L);
     }
 
+    private void applyResolvedOriginalSkin(Player target, SkinData skinData) {
+        Runnable task = () -> {
+            if (!target.isOnline()) {
+                return;
+            }
+            applySelfProfile(target, skinData);
+            String displayName = nameManager.loadNickname(target);
+            boolean nicknameActive = nameManager.hasNickname(target);
+            nametagManager.updateForAllViewers(target, displayName, nicknameActive, skinData);
+            scheduleSelfRefresh(target, skinData);
+        };
+        if (Bukkit.isPrimaryThread()) {
+            task.run();
+        } else {
+            Bukkit.getScheduler().runTask(plugin, task);
+        }
+    }
+
+    private void refreshNametagWithoutCustomSkin(Player target) {
+        Runnable task = () -> {
+            if (!target.isOnline()) {
+                return;
+            }
+            String displayName = nameManager.loadNickname(target);
+            boolean nicknameActive = nameManager.hasNickname(target);
+            nametagManager.updateForAllViewers(target, displayName, nicknameActive, null);
+        };
+        if (Bukkit.isPrimaryThread()) {
+            task.run();
+        } else {
+            Bukkit.getScheduler().runTask(plugin, task);
+        }
+    }
+
     private CompletableFuture<SkinData> fetchSkinFromName(String name) {
         CompletableFuture<SkinData> future = new CompletableFuture<>();
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -254,6 +299,20 @@ public final class SkinService {
                 future.complete(skinData);
             } catch (Exception e) {
                 warn("Error fetching skin for " + name + ": " + e.getMessage());
+                future.complete(null);
+            }
+        });
+        return future;
+    }
+
+    private CompletableFuture<SkinData> fetchSkinFromUuid(UUID uuid) {
+        CompletableFuture<SkinData> future = new CompletableFuture<>();
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                SkinData skinData = fetchSkinFromUuidSync(uuid);
+                future.complete(skinData);
+            } catch (Exception e) {
+                warn("Error fetching skin for UUID " + uuid + ": " + e.getMessage());
                 future.complete(null);
             }
         });
@@ -295,6 +354,31 @@ public final class SkinService {
         }
 
         JsonObject sessionJson = gson.fromJson(sessionResponse.body(), JsonObject.class);
+        return extractSkinFromSessionJson(sessionJson, "name:" + name);
+    }
+
+    private SkinData fetchSkinFromUuidSync(UUID uuid) throws Exception {
+        if (uuid == null) {
+            return null;
+        }
+        String normalizedUuid = uuid.toString().replace("-", "");
+        String sessionUrl = sessionApiBase + "/session/minecraft/profile/" + normalizedUuid + "?unsigned=false";
+        HttpRequest sessionRequest = HttpRequest.newBuilder()
+                .uri(URI.create(sessionUrl))
+                .timeout(requestTimeout)
+                .GET()
+                .build();
+
+        HttpResponse<String> sessionResponse = httpClient.send(sessionRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (sessionResponse.statusCode() != 200) {
+            return null;
+        }
+
+        JsonObject sessionJson = gson.fromJson(sessionResponse.body(), JsonObject.class);
+        return extractSkinFromSessionJson(sessionJson, "uuid:" + uuid);
+    }
+
+    private SkinData extractSkinFromSessionJson(JsonObject sessionJson, String source) {
         if (sessionJson == null || !sessionJson.has("properties")) {
             return null;
         }
@@ -317,7 +401,7 @@ public final class SkinService {
             if (value == null || value.isBlank()) {
                 return null;
             }
-            return new SkinData(value, signature, "name:" + name, System.currentTimeMillis());
+            return new SkinData(value, signature, source, System.currentTimeMillis());
         }
         return null;
     }
