@@ -11,7 +11,8 @@ A Skript addon that lets you change player **nametags**, **tablist names**, **ch
 ## Features
 - Change player nametags
 - Change tablist and chat display names
-- Supports non‑English languages
+- Change player skins
+- Supports non‑English languages (Including emojis)
 - Simple, lightweight syntax
 
 ## Requirements
