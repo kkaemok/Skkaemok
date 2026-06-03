@@ -43,3 +43,20 @@ format:
 # Output template token: %prefix% %nickname% %suffix% %original%
 output:
   tablist: "%prefix%%nickname%%suffix%"
+
+# Rewrites real online player names in outgoing chat/system messages to nicknames.
+# Covers chat-like packets such as /say, /msg output, command feedback, deaths, and advancements.
+output-name-rewrite:
+  enabled: true
+  debug: false
+  chat-command-decorate:
+    # Experimental fallback for Paper chat-command decoration.
+    enabled: false
+    debug-marker: false
+
+# Checks the latest GitHub release and notifies operators when they join.
+update-checker:
+  enabled: true
+  check-interval-minutes: 360
+  notify-per-login: true
+  github-api-url: "https://api.github.com/repos/kkaemok/Skkaemok/releases/latest"

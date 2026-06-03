@@ -10,11 +10,15 @@ import org.kkaemok.skkaemok.integration.LuckPermsHook;
 import org.kkaemok.skkaemok.integration.TabCustomNameBridge;
 import org.kkaemok.skkaemok.integration.TabIntegration;
 import org.kkaemok.skkaemok.listener.AdvancementListener;
+import org.kkaemok.skkaemok.listener.ChatCommandDecorateListener;
 import org.kkaemok.skkaemok.listener.ChatListener;
 import org.kkaemok.skkaemok.listener.CommandInterceptor;
 import org.kkaemok.skkaemok.listener.DeathListener;
+import org.kkaemok.skkaemok.listener.OutgoingMessageRewriteListener;
 import org.kkaemok.skkaemok.listener.PlayerSyncListener;
+import org.kkaemok.skkaemok.listener.UpdateNotifyListener;
 import org.kkaemok.skkaemok.service.NameManager;
+import org.kkaemok.skkaemok.service.NameRewriteService;
 import org.kkaemok.skkaemok.service.NametagManager;
 import org.kkaemok.skkaemok.service.NameStorage;
 import org.kkaemok.skkaemok.service.NicknameService;
@@ -22,6 +26,7 @@ import org.kkaemok.skkaemok.service.SkinData;
 import org.kkaemok.skkaemok.service.SkinManager;
 import org.kkaemok.skkaemok.service.SkinService;
 import org.kkaemok.skkaemok.service.SkinStorage;
+import org.kkaemok.skkaemok.service.UpdateChecker;
 import org.kkaemok.skkaemok.skript.NametagEffects;
 
 public final class Skkaemok extends JavaPlugin {
@@ -31,7 +36,10 @@ public final class Skkaemok extends JavaPlugin {
     private NametagManager nametagManager;
     private NicknameService nicknameService;
     private SkinService skinService;
+    private NameRewriteService nameRewriteService;
     private LuckPermsHook luckPermsHook;
+    private OutgoingMessageRewriteListener outgoingMessageRewriteListener;
+    private UpdateChecker updateChecker;
 
     @Override
     public void onEnable() {
@@ -61,6 +69,8 @@ public final class Skkaemok extends JavaPlugin {
         this.nametagManager = new NametagManager(this, tabIntegration, luckPermsHook, tabCustomNameBridge);
         this.nicknameService = new NicknameService(nameManager, nametagManager, skinManager);
         this.skinService = new SkinService(this, nameManager, skinManager, nametagManager);
+        this.nameRewriteService = new NameRewriteService(nameManager);
+        this.updateChecker = new UpdateChecker(this);
         luckPermsHook.registerMetaListener(uuid -> {
             var player = Bukkit.getPlayer(uuid);
             if (player != null) {
@@ -69,10 +79,14 @@ public final class Skkaemok extends JavaPlugin {
         });
 
         Bukkit.getPluginManager().registerEvents(new ChatListener(nameManager), this);
+        Bukkit.getPluginManager().registerEvents(new ChatCommandDecorateListener(this, nameRewriteService), this);
         Bukkit.getPluginManager().registerEvents(new CommandInterceptor(nameManager), this);
-        Bukkit.getPluginManager().registerEvents(new DeathListener(nameManager), this);
-        Bukkit.getPluginManager().registerEvents(new AdvancementListener(nameManager), this);
+        Bukkit.getPluginManager().registerEvents(new DeathListener(nameRewriteService), this);
+        Bukkit.getPluginManager().registerEvents(new AdvancementListener(nameRewriteService), this);
         Bukkit.getPluginManager().registerEvents(new PlayerSyncListener(nameManager, skinManager, nametagManager), this);
+        Bukkit.getPluginManager().registerEvents(new UpdateNotifyListener(this, updateChecker), this);
+        registerOutgoingMessageRewriteListener();
+        updateChecker.start();
 
         Skript.registerAddon(this);
         NametagEffects.register(this, nicknameService, skinService);
@@ -83,6 +97,10 @@ public final class Skkaemok extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        unregisterOutgoingMessageRewriteListener();
+        if (updateChecker != null) {
+            updateChecker.stop();
+        }
         if (luckPermsHook != null) {
             luckPermsHook.close();
         }
@@ -115,7 +133,32 @@ public final class Skkaemok extends JavaPlugin {
         if (skinManager != null) {
             skinManager.reload();
         }
+        registerOutgoingMessageRewriteListener();
+        if (updateChecker != null) {
+            updateChecker.reload();
+        }
         refreshOnlinePlayers();
+    }
+
+    private void registerOutgoingMessageRewriteListener() {
+        unregisterOutgoingMessageRewriteListener();
+        if (nameRewriteService == null) {
+            return;
+        }
+        if (!getConfig().getBoolean("output-name-rewrite.enabled", true)) {
+            return;
+        }
+        outgoingMessageRewriteListener = new OutgoingMessageRewriteListener(this, nameRewriteService);
+        outgoingMessageRewriteListener.register();
+        getLogger().info("Outgoing message name rewrite has been enabled.");
+    }
+
+    private void unregisterOutgoingMessageRewriteListener() {
+        if (outgoingMessageRewriteListener == null) {
+            return;
+        }
+        outgoingMessageRewriteListener.unregister();
+        outgoingMessageRewriteListener = null;
     }
 
     private void refreshOnlinePlayers() {

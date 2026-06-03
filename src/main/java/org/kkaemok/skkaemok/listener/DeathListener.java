@@ -1,20 +1,19 @@
 package org.kkaemok.skkaemok.listener;
 
 import net.kyori.adventure.text.Component;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.kkaemok.skkaemok.service.NameManager;
+import org.kkaemok.skkaemok.service.NameRewriteService;
 
 public final class DeathListener implements Listener {
-    private final NameManager nameManager;
+    private final NameRewriteService nameRewriteService;
 
-    public DeathListener(NameManager nameManager) {
-        if (nameManager == null) {
-            throw new IllegalArgumentException("NameManager cannot be null");
+    public DeathListener(NameRewriteService nameRewriteService) {
+        if (nameRewriteService == null) {
+            throw new IllegalArgumentException("NameRewriteService cannot be null");
         }
-        this.nameManager = nameManager;
+        this.nameRewriteService = nameRewriteService;
     }
 
     @EventHandler
@@ -24,22 +23,6 @@ public final class DeathListener implements Listener {
             return;
         }
 
-        Player deadPlayer = event.getEntity();
-        String deadNick = nameManager.loadNickname(deadPlayer);
-        Component result = message.replaceText(builder ->
-                builder.matchLiteral(deadPlayer.getName())
-                        .replacement(Component.text(deadNick))
-        );
-
-        Player killer = deadPlayer.getKiller();
-        if (killer != null) {
-            String killerNick = nameManager.loadNickname(killer);
-            result = result.replaceText(builder ->
-                    builder.matchLiteral(killer.getName())
-                            .replacement(Component.text(killerNick))
-            );
-        }
-
-        event.deathMessage(result);
+        event.deathMessage(nameRewriteService.rewriteOnlinePlayerNames(message));
     }
 }

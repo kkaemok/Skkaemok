@@ -1,21 +1,19 @@
 package org.kkaemok.skkaemok.listener;
 
 import net.kyori.adventure.text.Component;
-import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
-import org.kkaemok.skkaemok.service.NameManager;
+import org.kkaemok.skkaemok.service.NameRewriteService;
 
 public final class AdvancementListener implements Listener {
-    private final NameManager nameManager;
+    private final NameRewriteService nameRewriteService;
 
-    public AdvancementListener(NameManager nameManager) {
-        if (nameManager == null) {
-            throw new IllegalArgumentException("NameManager cannot be null");
+    public AdvancementListener(NameRewriteService nameRewriteService) {
+        if (nameRewriteService == null) {
+            throw new IllegalArgumentException("NameRewriteService cannot be null");
         }
-        this.nameManager = nameManager;
+        this.nameRewriteService = nameRewriteService;
     }
 
     @EventHandler
@@ -25,14 +23,6 @@ public final class AdvancementListener implements Listener {
             return;
         }
 
-        Player player = event.getPlayer();
-        String nickname = nameManager.loadNickname(player);
-        Component modifiedMessage = originalMessage.replaceText(builder ->
-                builder.matchLiteral(player.getName())
-                        .replacement(Component.text(nickname))
-        );
-
-        Bukkit.getServer().sendMessage(modifiedMessage);
-        event.message(null);
+        event.message(nameRewriteService.rewriteOnlinePlayerNames(originalMessage));
     }
 }
