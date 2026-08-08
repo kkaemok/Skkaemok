@@ -16,7 +16,7 @@ A Skript addon that lets you change player **nametags**, **tablist names**, **ch
 - Simple, lightweight syntax
 
 ## Requirements
-- Minecraft: 1.21+, 26.x
+- Minecraft: Paper 1.21.x, 26.x
 - Skript: 2.10+
 - ProtocolLib (required)
 
