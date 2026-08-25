@@ -7,6 +7,8 @@
 
 A Skript addon that lets you change player **nametags**, **tablist names**, **chat names**, and **skins** with a few simple syntaxes.
 
+# [!] Update coming [!] 9/9
+
 
 ## Features
 - Change player nametags
