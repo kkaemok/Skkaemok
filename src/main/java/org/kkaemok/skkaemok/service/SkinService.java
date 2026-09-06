@@ -121,6 +121,19 @@ public final class SkinService {
         return true;
     }
 
+    public boolean setSkinFromPlayer(Player target, Player viewer, Player source) {
+        if (target == null || viewer == null || source == null) {
+            return false;
+        }
+        SkinData skinData = extractSkinFromPlayer(source);
+        if (skinData == null) {
+            warn("Failed to read skin from player " + source.getName());
+            return false;
+        }
+        applyViewerSkin(target, viewer, skinData);
+        return true;
+    }
+
     public void setSkinFromName(Player target, String sourceName) {
         if (target == null) {
             return;
@@ -137,6 +150,24 @@ public final class SkinService {
                 return;
             }
             applySkin(target, skinData);
+        });
+    }
+
+    public void setSkinFromName(Player target, Player viewer, String sourceName) {
+        if (target == null || viewer == null) {
+            return;
+        }
+        String normalized = normalizeName(sourceName);
+        if (normalized == null) {
+            warn("Invalid skin source name: " + sourceName);
+            return;
+        }
+        fetchSkinFromName(normalized).thenAccept(skinData -> {
+            if (skinData == null) {
+                warn("Failed to fetch skin for " + normalized);
+                return;
+            }
+            applyViewerSkin(target, viewer, skinData);
         });
     }
 
@@ -171,8 +202,41 @@ public final class SkinService {
         return true;
     }
 
+    public boolean setSkinFromUrl(Player target, Player viewer, String url) {
+        if (target == null || viewer == null) {
+            return false;
+        }
+        String normalized = normalizeUrl(url);
+        if (normalized == null) {
+            warn("Invalid skin URL: " + url);
+            return false;
+        }
+        if (requireMineSkinKey && mineSkinApiKey == null) {
+            warn("MineSkin API key is required for URL skins. Configure skin.mineskin.api-key.");
+            return false;
+        }
+        if (mineSkinApiKey == null && warnedNoKey.compareAndSet(false, true)) {
+            warn("MineSkin API key is not set. Anonymous requests are rate-limited and may fail.");
+        }
+        fetchMineSkinFromUrlAsync(normalized).thenAccept(skinData -> {
+            SkinData resolved = skinData;
+            if (resolved == null && allowUnsignedUrl) {
+                resolved = buildUnsignedSkinFromUrl(normalized);
+            }
+            if (resolved == null) {
+                warn("Failed to apply skin from URL: " + normalized);
+                return;
+            }
+            applyViewerSkin(target, viewer, resolved);
+        });
+        return true;
+    }
+
     public void resetSkin(Player target) {
         if (target == null) {
+            return;
+        }
+        if (!skinManager.hasCustomSkin(target)) {
             return;
         }
         skinManager.resetSkin(target);
@@ -191,6 +255,25 @@ public final class SkinService {
         });
     }
 
+    public void resetSkin(Player target, Player viewer) {
+        if (target == null || viewer == null) {
+            return;
+        }
+        if (!skinManager.hasCustomSkin(target, viewer)) {
+            return;
+        }
+        skinManager.resetSkin(target, viewer);
+        nametagManager.updateForViewer(target, viewer);
+    }
+
+    public boolean hasCustomSkin(Player target) {
+        return skinManager.hasCustomSkin(target);
+    }
+
+    public boolean hasCustomSkin(Player target, Player viewer) {
+        return skinManager.hasCustomSkin(target, viewer);
+    }
+
     private void applySkin(Player target, SkinData skinData) {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(skinData, "skinData");
@@ -199,6 +282,9 @@ public final class SkinService {
         }
 
         Runnable task = () -> {
+            if (sameTexture(skinManager.getRawSkin(target), skinData)) {
+                return;
+            }
             skinManager.setSkin(target, skinData);
             if (target.isOnline()) {
                 applySelfProfile(target, skinData);
@@ -209,6 +295,29 @@ public final class SkinService {
             }
         };
 
+        if (Bukkit.isPrimaryThread()) {
+            task.run();
+        } else {
+            Bukkit.getScheduler().runTask(plugin, task);
+        }
+    }
+
+    private void applyViewerSkin(Player target, Player viewer, SkinData skinData) {
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(viewer, "viewer");
+        Objects.requireNonNull(skinData, "skinData");
+        if (!skinData.isValid()) {
+            return;
+        }
+        Runnable task = () -> {
+            if (sameTexture(skinManager.getRawSkin(target, viewer), skinData)) {
+                return;
+            }
+            skinManager.setSkin(target, viewer, skinData);
+            if (target.isOnline() && viewer.isOnline()) {
+                nametagManager.updateForViewer(target, viewer);
+            }
+        };
         if (Bukkit.isPrimaryThread()) {
             task.run();
         } else {
@@ -229,6 +338,12 @@ public final class SkinService {
             return new SkinData(value, prop.getSignature(), "player:" + source.getName(), System.currentTimeMillis());
         }
         return null;
+    }
+
+    private boolean sameTexture(SkinData first, SkinData second) {
+        return first != null && second != null
+                && Objects.equals(first.getValue(), second.getValue())
+                && Objects.equals(first.getSignature(), second.getSignature());
     }
 
     private void applySelfProfile(Player target, SkinData skinData) {

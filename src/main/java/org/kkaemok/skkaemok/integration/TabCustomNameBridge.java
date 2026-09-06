@@ -4,6 +4,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.UUID;
 
 public final class TabCustomNameBridge {
@@ -42,7 +43,7 @@ public final class TabCustomNameBridge {
         if (player == null) {
             return;
         }
-        if (tabIntegration.isTabMissing()) {
+        if (!tabIntegration.shouldUseTabCustomTabName()) {
             return;
         }
         invokeSetName(player.getUniqueId(), null);
@@ -68,12 +69,65 @@ public final class TabCustomNameBridge {
             if (manager == null) {
                 return;
             }
-            setName.invoke(manager, tabPlayer, customName);
+            Method setNameMethod = resolveSetNameMethod(manager.getClass(), tabPlayer.getClass());
+            if (setNameMethod == null) {
+                if (!warned) {
+                    warned = true;
+                    plugin.getLogger().warning("TAB customtabname bridge could not find a compatible setName method.");
+                }
+                return;
+            }
+            if (setNameMethod.getParameterCount() == 2) {
+                setNameMethod.invoke(manager, tabPlayer, customName);
+            } else if (setNameMethod.getParameterCount() == 3) {
+                setNameMethod.invoke(manager, tabPlayer, customName, Boolean.TRUE);
+            } else if (!warned) {
+                warned = true;
+                plugin.getLogger().warning("TAB customtabname bridge found an unsupported setName signature.");
+            }
         } catch (Exception e) {
             if (!warned) {
                 warned = true;
                 plugin.getLogger().warning("Failed to update TAB customtabname via API: " + e.getMessage());
             }
+        }
+    }
+
+    private Method resolveSetNameMethod(Class<?> managerClass, Class<?> tabPlayerClass) {
+        if (setName != null) {
+            return setName;
+        }
+
+        synchronized (lock) {
+            if (setName != null) {
+                return setName;
+            }
+
+            for (Method method : managerClass.getMethods()) {
+                if (!Modifier.isPublic(method.getModifiers())) {
+                    continue;
+                }
+                if (!method.getName().equals("setName")) {
+                    continue;
+                }
+
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                if (parameterTypes.length == 2
+                        && parameterTypes[0].isAssignableFrom(tabPlayerClass)
+                        && parameterTypes[1] == String.class) {
+                    setName = method;
+                    return setName;
+                }
+                if (parameterTypes.length == 3
+                        && parameterTypes[0].isAssignableFrom(tabPlayerClass)
+                        && parameterTypes[1] == String.class
+                        && (parameterTypes[2] == boolean.class || parameterTypes[2] == Boolean.class)) {
+                    setName = method;
+                    return setName;
+                }
+            }
+
+            return null;
         }
     }
 
@@ -91,17 +145,10 @@ public final class TabCustomNameBridge {
             try {
                 ClassLoader classLoader = plugin.getClass().getClassLoader();
                 Class<?> tabApiClass = Class.forName("me.neznamy.tab.api.TabAPI", true, classLoader);
-                Class<?> tabPlayerClass = Class.forName("me.neznamy.tab.api.TabPlayer", true, classLoader);
-                Class<?> managerClass = Class.forName(
-                        "me.neznamy.tab.api.tablist.TabListFormatManager",
-                        true,
-                        classLoader
-                );
 
                 getInstance = tabApiClass.getMethod("getInstance");
                 getPlayerByUuid = tabApiClass.getMethod("getPlayer", UUID.class);
                 getTabListFormatManager = tabApiClass.getMethod("getTabListFormatManager");
-                setName = managerClass.getMethod("setName", tabPlayerClass, String.class);
                 available = true;
                 return true;
             } catch (Exception e) {

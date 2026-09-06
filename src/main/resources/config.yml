@@ -1,4 +1,4 @@
-# Skkaemok config 1.4-SNAPSHOT-20260324
+# Skkaemok config 1.8
 skin:
   mojang:
     api-base: "https://api.mojang.com"
@@ -19,20 +19,30 @@ skin:
   url:
     allow-unsigned: false
 
+tab:
+  # true -> TAB plugin is present: use TAB customtabname API. TAB missing: apply directly.
+  # false -> never use TAB API; Skkaemok applies tab names directly.
+  # Per-viewer tablist overrides always use PLAYER_INFO packets because TAB's
+  # customtabname API stores one global value per target player.
+  integration: true
+  # Value passed to TAB API when TAB integration is active.
+  # %prefix%/%suffix% use vanilla team decorations. LuckPerms is kept to nametags.
+  # Available tokens: %prefix% %nickname% %suffix% %original%
+  custom-name-format: "%nickname%"
+  reapply:
+    # Reapply once after join/change to win against plugins that update tab names late.
+    enabled: true
+    delay-ticks: 10
+
 integration:
-  tab:
-    # mode: AUTO | ON | OFF | PRIORITY
-    # AUTO     -> TAB 감지 시 내부 탭/이름표 관리를 TAB에 위임
-    # ON       -> 항상 TAB에 위임
-    # OFF      -> TAB이 있어도 이 플러그인이 직접 관리
-    # PRIORITY -> TAB이 있어도 직접 관리 + 지연 후 다시 적용
-    mode: PRIORITY
-    # true면 탭리스트 이름은 TAB의 customtabname API로만 갱신
-    use-customtabname: true
-    priority:
-      delay-ticks: 10
   luckperms:
     enabled: true
+
+vanilla-team-sync:
+  # Outgoing scoreboard-team packets trigger an immediate, debounced comparison.
+  # This active-player-only fallback also catches updates hidden by scoreboard plugins.
+  # Set to 0 to disable the fallback. Values below 10 are clamped to 10 ticks.
+  fallback-interval-ticks: 20
 
 # Formatting mode: auto | legacy | minimessage
 format:
@@ -40,15 +50,28 @@ format:
   nickname: auto
   output: auto
 
-# Output template token: %prefix% %nickname% %suffix% %original%
 output:
+  # Nametag composition around the profile-name section.
+  # %team_prefix%/%team_suffix% = vanilla scoreboard team components
+  # %prefix%/%suffix%           = LuckPerms metadata components
+  # %nickname%                  = the client profile name (must be present once)
+  # %original%                  = the real Minecraft account name
+  nametag: "%team_prefix%%prefix%%nickname%%suffix%%team_suffix%"
+
+  # Tablist tokens retain their existing compatibility behavior:
+  # %prefix%/%suffix% are vanilla team decorations. %team_prefix% and
+  # %team_suffix% are equivalent explicit aliases. %lp_prefix% and
+  # %lp_suffix% add LuckPerms metadata when desired.
   tablist: "%prefix%%nickname%%suffix%"
 
-# Rewrites real online player names in outgoing chat/system messages to nicknames.
-# Covers chat-like packets such as /say, /msg output, command feedback, deaths, and advancements.
+# Rewrites command/system output names to chat names.
+# SYSTEM_CHAT command output is rewritten like nicknames; normal chat message content is not rewritten.
 output-name-rewrite:
   enabled: true
   debug: false
+  # Leave signed player-chat content intact. Skkaemok still rewrites the
+  # recipient-specific sender/decorated-name fields exposed by the protocol.
+  rewrite-chat-message-content: false
   chat-command-decorate:
     # Experimental fallback for Paper chat-command decoration.
     enabled: false

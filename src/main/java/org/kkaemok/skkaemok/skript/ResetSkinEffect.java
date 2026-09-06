@@ -18,14 +18,17 @@ public final class ResetSkinEffect extends Effect {
 
     private Expression<Player> targetPlayerExpr;
     private Expression<String> targetNameExpr;
+    private Expression<Player> viewerExpr;
     private boolean targetIsName;
+    private boolean viewerSpecific;
 
     public static void bootstrap(JavaPlugin plugin, SkinService skinService) {
         ResetSkinEffect.plugin = plugin;
         ResetSkinEffect.skinService = skinService;
         Skript.registerEffect(ResetSkinEffect.class,
                 "reset skin of %player%",
-                "reset skin of %string%"
+                "reset skin of %string%",
+                "reset skin of %player% for %player%"
         );
     }
 
@@ -34,9 +37,13 @@ public final class ResetSkinEffect extends Effect {
         if (matchedPattern == 0) {
             targetPlayerExpr = (Expression<Player>) expressions[0];
             targetIsName = false;
-        } else {
+        } else if (matchedPattern == 1) {
             targetNameExpr = (Expression<String>) expressions[0];
             targetIsName = true;
+        } else {
+            targetPlayerExpr = (Expression<Player>) expressions[0];
+            viewerExpr = (Expression<Player>) expressions[1];
+            viewerSpecific = true;
         }
         return true;
     }
@@ -54,7 +61,14 @@ public final class ResetSkinEffect extends Effect {
         if (target == null) {
             return;
         }
-        skinService.resetSkin(target);
+        if (viewerSpecific) {
+            Player viewer = viewerExpr.getSingle(event);
+            if (viewer != null) {
+                skinService.resetSkin(target, viewer);
+            }
+        } else {
+            skinService.resetSkin(target);
+        }
     }
 
     private Player resolveTarget(Event event) {

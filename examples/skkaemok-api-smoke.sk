@@ -1,0 +1,52 @@
+command /skkaemok-api-smoke:
+    trigger:
+        set {_target} to player
+        set {_viewer} to player
+
+        set nametag of {_target} to "깨목"
+        set {_nametag} to nametag of {_target}
+        set nametag of {_target} for {_viewer} to "Admin"
+        set {_viewerNametag} to nametag of {_target} for {_viewer}
+        if {_target} has a custom nametag:
+            send {_nametag}
+        if {_target} has a custom nametag for {_viewer}:
+            send {_viewerNametag}
+        set {_foundNametag} to player with nametag "Admin" for {_viewer}
+        reset nametag of {_target} for {_viewer}
+        reset nametag of {_target}
+
+        set tablist name of {_target} to "테스트"
+        set {_tablist} to tablist name of {_target}
+        set tablist name of {_target} for {_viewer} to "éclair"
+        set {_viewerTablist} to tablist name of {_target} for {_viewer}
+        if {_target} has a custom tablist name:
+            send {_tablist}
+        if {_target} has a custom tablist name for {_viewer}:
+            send {_viewerTablist}
+        set {_foundTablist} to player with tablist name "éclair" for {_viewer}
+        reset tablist name of {_target} for {_viewer}
+        reset tablist name of {_target}
+
+        set chat name of {_target} to "玩家"
+        set {_chatName} to chat name of {_target}
+        set chat name of {_target} for {_viewer} to "Admin"
+        set {_viewerChatName} to chat name of {_target} for {_viewer}
+        if {_target} has a custom chat name:
+            send {_chatName}
+        if {_target} has a custom chat name for {_viewer}:
+            send {_viewerChatName}
+        set {_foundChatName} to player with chat name "Admin" for {_viewer}
+        reset chat name of {_target} for {_viewer}
+        reset chat name of {_target}
+
+        set {_realName} to real name of {_target}
+        set {_originalName} to original name of {_target}
+
+        set skin of {_target} to {_viewer}
+        set skin of {_target} for {_viewer} to "Notch"
+        if {_target} has a custom skin:
+            send {_realName}
+        if {_target} has a custom skin for {_viewer}:
+            send {_originalName}
+        reset skin of {_target} for {_viewer}
+        reset skin of {_target}

@@ -23,6 +23,6 @@ public final class AdvancementListener implements Listener {
             return;
         }
 
-        event.message(nameRewriteService.rewriteOnlinePlayerNames(originalMessage));
+        event.message(nameRewriteService.rewritePlayerName(originalMessage, event.getPlayer()));
     }
 }

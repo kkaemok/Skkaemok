@@ -1,0 +1,48 @@
+options:
+    chat-format: &7[&f{name}&7] &f{message}
+    nick-reset-word: reset
+
+# Skkaemok does not force normal chat formatting.
+# This example formats chat with the player's Skkaemok chat name, tab name, and nametag together.
+
+function skkaemokApplyNick(p: player, nick: text):
+    set {skkaemok.nick::%uuid of {_p}%} to {_nick}
+    set nametag of {_p} to {_nick}
+    set tablist name of {_p} to {_nick}
+    set chat name of {_p} to {_nick}
+
+function skkaemokResetNick(p: player):
+    delete {skkaemok.nick::%uuid of {_p}%}
+    reset nametag of {_p}
+    reset tablist name of {_p}
+    reset chat name of {_p}
+
+function skkaemokChatName(p: player) :: text:
+    return "%display name of {_p}%"
+
+command /nick [<text>]:
+    trigger:
+        if arg-1 is not set:
+            send "&eUsage: /nick <nickname>" to player
+            send "&eUse /nick {@nick-reset-word} to reset." to player
+            stop
+
+        if arg-1 is "{@nick-reset-word}":
+            skkaemokResetNick(player)
+            send "&aNickname reset." to player
+            stop
+
+        skkaemokApplyNick(player, arg-1)
+        send "&aNickname changed to &f%arg-1%&a." to player
+
+on join:
+    if {skkaemok.nick::%uuid of player%} is set:
+        skkaemokApplyNick(player, {skkaemok.nick::%uuid of player%})
+
+on chat:
+    cancel event
+    set {_name} to skkaemokChatName(player)
+    set {_format} to "{@chat-format}"
+    replace all "{name}" with "%{_name}%" in {_format}
+    replace all "{message}" with "%message%" in {_format}
+    broadcast colored {_format}

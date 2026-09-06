@@ -5,17 +5,13 @@ plugins {
 }
 
 group = "org.kkaemok"
-version = "1.7"
+version = "1.8"
 
 repositories {
     mavenCentral()
     maven {
         name = "papermc-repo"
         url = uri("https://repo.papermc.io/repository/maven-public/")
-    }
-    maven {
-        name = "dmulloy2-repo"
-        url = uri("https://repo.dmulloy2.net/repository/public/")
     }
     maven {
         name = "skript-repo"
@@ -38,12 +34,18 @@ dependencies {
     }
 
     compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
-    compileOnly("com.comphenix.protocol:ProtocolLib:5.3.0")
+    compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
     compileOnly("com.github.SkriptLang:Skript:2.9.1")
     compileOnly("net.luckperms:api:5.4")
     compileOnly("com.google.code.gson:gson:2.11.0")
     compileOnly("com.google.guava:guava:32.1.3-jre")
     implementation("org.bstats:bstats-bukkit:3.2.1")
+
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("org.mockito:mockito-core:5.14.2")
+    testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
+    testImplementation("net.dmulloy2:ProtocolLib:5.4.0")
 }
 
 tasks {
@@ -71,6 +73,10 @@ tasks.withType<JavaCompile>().configureEach {
     if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible) {
         options.release.set(targetJavaVersion)
     }
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks.processResources {

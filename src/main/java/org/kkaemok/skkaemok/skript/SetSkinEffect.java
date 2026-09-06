@@ -19,10 +19,12 @@ public final class SetSkinEffect extends Effect {
     private Expression<Player> targetPlayerExpr;
     private Expression<String> targetNameExpr;
     private Expression<Player> sourcePlayerExpr;
+    private Expression<Player> viewerExpr;
     private Expression<String> sourceStringExpr;
     private boolean targetIsName;
     private boolean sourceIsPlayer;
     private boolean sourceIsUrl;
+    private boolean viewerSpecific;
 
     public static void bootstrap(JavaPlugin plugin, SkinService skinService) {
         SetSkinEffect.plugin = plugin;
@@ -33,7 +35,10 @@ public final class SetSkinEffect extends Effect {
                 "set skin of %player% to %string%",
                 "set skin of %string% to %string%",
                 "set skin of %player% to url %string%",
-                "set skin of %string% to url %string%"
+                "set skin of %string% to url %string%",
+                "set skin of %player% for %player% to %player%",
+                "set skin of %player% for %player% to %string%",
+                "set skin of %player% for %player% to url %string%"
         );
     }
 
@@ -80,6 +85,26 @@ public final class SetSkinEffect extends Effect {
                 sourceIsPlayer = false;
                 sourceIsUrl = true;
             }
+            case 6 -> {
+                targetPlayerExpr = (Expression<Player>) expressions[0];
+                viewerExpr = (Expression<Player>) expressions[1];
+                sourcePlayerExpr = (Expression<Player>) expressions[2];
+                sourceIsPlayer = true;
+                viewerSpecific = true;
+            }
+            case 7 -> {
+                targetPlayerExpr = (Expression<Player>) expressions[0];
+                viewerExpr = (Expression<Player>) expressions[1];
+                sourceStringExpr = (Expression<String>) expressions[2];
+                viewerSpecific = true;
+            }
+            case 8 -> {
+                targetPlayerExpr = (Expression<Player>) expressions[0];
+                viewerExpr = (Expression<Player>) expressions[1];
+                sourceStringExpr = (Expression<String>) expressions[2];
+                sourceIsUrl = true;
+                viewerSpecific = true;
+            }
             default -> {
                 return false;
             }
@@ -100,6 +125,10 @@ public final class SetSkinEffect extends Effect {
         if (target == null) {
             return;
         }
+        Player viewer = viewerSpecific ? viewerExpr.getSingle(event) : null;
+        if (viewerSpecific && viewer == null) {
+            return;
+        }
 
         if (sourceIsPlayer) {
             Player source = sourcePlayerExpr.getSingle(event);
@@ -107,7 +136,9 @@ public final class SetSkinEffect extends Effect {
                 warn(event, "Source player not found.");
                 return;
             }
-            boolean ok = skinService.setSkinFromPlayer(target, source);
+            boolean ok = viewerSpecific
+                    ? skinService.setSkinFromPlayer(target, viewer, source)
+                    : skinService.setSkinFromPlayer(target, source);
             if (!ok) {
                 warn(event, "Failed to apply skin from player.");
             }
@@ -120,14 +151,20 @@ public final class SetSkinEffect extends Effect {
         }
 
         if (sourceIsUrl) {
-            boolean ok = skinService.setSkinFromUrl(target, source);
+            boolean ok = viewerSpecific
+                    ? skinService.setSkinFromUrl(target, viewer, source)
+                    : skinService.setSkinFromUrl(target, source);
             if (!ok) {
                 warn(event, "Failed to apply skin from URL.");
             }
             return;
         }
 
-        skinService.setSkinFromName(target, source);
+        if (viewerSpecific) {
+            skinService.setSkinFromName(target, viewer, source);
+        } else {
+            skinService.setSkinFromName(target, source);
+        }
     }
 
     private Player resolveTarget(Event event) {

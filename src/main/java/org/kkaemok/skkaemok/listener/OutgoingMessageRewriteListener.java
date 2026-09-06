@@ -14,6 +14,7 @@ import com.comphenix.protocol.utility.MinecraftReflection;
 import com.comphenix.protocol.wrappers.WrappedChatComponent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.kkaemok.skkaemok.service.NameRewriteService;
 
@@ -32,12 +33,10 @@ public final class OutgoingMessageRewriteListener {
     private final ProtocolManager protocolManager;
     private final PacketAdapter packetAdapter;
 
-    public OutgoingMessageRewriteListener(JavaPlugin plugin, NameRewriteService nameRewriteService) {
-        if (plugin == null) {
-            throw new IllegalArgumentException("Plugin cannot be null");
-        }
-        if (nameRewriteService == null) {
-            throw new IllegalArgumentException("NameRewriteService cannot be null");
+    public OutgoingMessageRewriteListener(JavaPlugin plugin,
+                                          NameRewriteService nameRewriteService) {
+        if (plugin == null || nameRewriteService == null) {
+            throw new IllegalArgumentException("Dependencies cannot be null");
         }
 
         this.plugin = plugin;
@@ -70,13 +69,17 @@ public final class OutgoingMessageRewriteListener {
         }
 
         boolean debugEnabled = isDebugEnabled();
-        RewriteDebug debug = new RewriteDebug(packet.getType().name(), event.getPlayer().getName());
+        Player viewer = event.getPlayer();
+        String viewerName = viewer == null ? "<none>" : viewer.getName();
+        RewriteDebug debug = new RewriteDebug(packet.getType().name(), viewerName);
         try {
             if (debugEnabled) {
                 collectTopLevelFields(packet, debug);
             }
-            rewriteTopLevelChatTypeBounds(packet, debug);
-            rewriteStructure(packet, 0, debug);
+            rewriteTopLevelChatTypeBounds(packet, debug, viewer);
+            if (shouldRewritePacketComponents(packet)) {
+                rewriteStructure(packet, 0, debug, viewer);
+            }
         } catch (Exception e) {
             plugin.getLogger().log(Level.FINE, "Failed to rewrite outgoing chat packet.", e);
             debug.error = e.getClass().getSimpleName() + ": " + e.getMessage();
@@ -85,6 +88,15 @@ public final class OutgoingMessageRewriteListener {
                 logDebug(debug);
             }
         }
+    }
+
+    private boolean shouldRewritePacketComponents(PacketContainer packet) {
+        PacketType packetType = packet.getType();
+        if (packetType == PacketType.Play.Server.CHAT
+                || packetType == PacketType.Play.Server.DISGUISED_CHAT) {
+            return plugin.getConfig().getBoolean("output-name-rewrite.rewrite-chat-message-content", false);
+        }
+        return true;
     }
 
     private void collectTopLevelFields(PacketContainer packet, RewriteDebug debug) {
@@ -99,11 +111,11 @@ public final class OutgoingMessageRewriteListener {
         }
     }
 
-    private void rewriteTopLevelChatTypeBounds(PacketContainer packet, RewriteDebug debug) {
+    private void rewriteTopLevelChatTypeBounds(PacketContainer packet, RewriteDebug debug, Player viewer) {
         StructureModifier<Object> fields = packet.getModifier();
         for (int i = 0; i < fields.size(); i++) {
             Object original = readModifier(fields, i, debug, "field");
-            Object rewritten = rewriteChatTypeBound(original, debug);
+            Object rewritten = rewriteChatTypeBound(original, debug, viewer);
             if (rewritten != null) {
                 writeModifier(fields, i, rewritten, debug, "field");
                 debug.boundChatTypeRewrites++;
@@ -112,7 +124,7 @@ public final class OutgoingMessageRewriteListener {
         }
     }
 
-    private Object rewriteChatTypeBound(Object value, RewriteDebug debug) {
+    private Object rewriteChatTypeBound(Object value, RewriteDebug debug, Player viewer) {
         if (value == null || !isLikelyChatTypeBound(value)) {
             return null;
         }
@@ -132,7 +144,7 @@ public final class OutgoingMessageRewriteListener {
                 RecordComponent recordComponent = components[i];
                 constructorTypes[i] = recordComponent.getType();
                 Object originalValue = recordComponent.getAccessor().invoke(value);
-                Object rewrittenValue = rewriteRecordComponentValue(originalValue, debug);
+                Object rewrittenValue = rewriteRecordComponentValue(originalValue, debug, viewer);
                 if (rewrittenValue != null) {
                     constructorArgs[i] = rewrittenValue;
                     changed = true;
@@ -161,12 +173,13 @@ public final class OutgoingMessageRewriteListener {
                 && className.toLowerCase().contains("bound");
     }
 
-    private Object rewriteRecordComponentValue(Object value, RewriteDebug debug) {
+    private Object rewriteRecordComponentValue(Object value, RewriteDebug debug, Player viewer) {
         if (value == null) {
             return null;
         }
         if (isNmsChatComponent(value)) {
-            return rewriteComponentHandle(value, debug);
+            Object rewritten = rewriteComponentHandle(value, debug, viewer);
+            return rewritten == null ? null : rewritten;
         }
         if (value instanceof Optional<?> optional) {
             if (optional.isEmpty()) {
@@ -176,7 +189,7 @@ public final class OutgoingMessageRewriteListener {
             if (!isNmsChatComponent(optionalValue)) {
                 return null;
             }
-            Object rewritten = rewriteComponentHandle(optionalValue, debug);
+            Object rewritten = rewriteComponentHandle(optionalValue, debug, viewer);
             return rewritten == null ? null : Optional.of(rewritten);
         }
         return null;
@@ -186,30 +199,30 @@ public final class OutgoingMessageRewriteListener {
         return MinecraftReflection.getIChatBaseComponentClass().isInstance(value);
     }
 
-    private void rewriteStructure(AbstractStructure structure, int depth, RewriteDebug debug) {
+    private void rewriteStructure(AbstractStructure structure, int depth, RewriteDebug debug, Player viewer) {
         if (structure == null || depth > MAX_STRUCTURE_DEPTH) {
             return;
         }
 
-        rewriteChatComponents(structure, debug);
-        rewriteChatComponentArrays(structure, debug);
-        rewriteNestedStructures(structure, depth, debug);
-        rewriteOptionalNestedStructures(structure, depth, debug);
+        rewriteChatComponents(structure, debug, viewer);
+        rewriteChatComponentArrays(structure, debug, viewer);
+        rewriteNestedStructures(structure, depth, debug, viewer);
+        rewriteOptionalNestedStructures(structure, depth, debug, viewer);
     }
 
-    private void rewriteChatComponents(AbstractStructure structure, RewriteDebug debug) {
+    private void rewriteChatComponents(AbstractStructure structure, RewriteDebug debug, Player viewer) {
         StructureModifier<WrappedChatComponent> components = structure.getChatComponents();
         debug.componentSlots += components.size();
         for (int i = 0; i < components.size(); i++) {
             WrappedChatComponent original = readModifier(components, i, debug, "component");
-            WrappedChatComponent rewritten = rewriteWrappedComponent(original, debug);
+            WrappedChatComponent rewritten = rewriteWrappedComponent(original, debug, viewer);
             if (rewritten != null) {
                 writeModifier(components, i, rewritten, debug, "component");
             }
         }
     }
 
-    private void rewriteChatComponentArrays(AbstractStructure structure, RewriteDebug debug) {
+    private void rewriteChatComponentArrays(AbstractStructure structure, RewriteDebug debug, Player viewer) {
         StructureModifier<WrappedChatComponent[]> componentArrays = structure.getChatComponentArrays();
         debug.componentArraySlots += componentArrays.size();
         for (int i = 0; i < componentArrays.size(); i++) {
@@ -222,7 +235,7 @@ public final class OutgoingMessageRewriteListener {
             boolean changed = false;
             WrappedChatComponent[] rewritten = original.clone();
             for (int j = 0; j < rewritten.length; j++) {
-                WrappedChatComponent rewrittenComponent = rewriteWrappedComponent(rewritten[j], debug);
+                WrappedChatComponent rewrittenComponent = rewriteWrappedComponent(rewritten[j], debug, viewer);
                 if (rewrittenComponent != null) {
                     rewritten[j] = rewrittenComponent;
                     changed = true;
@@ -235,7 +248,7 @@ public final class OutgoingMessageRewriteListener {
         }
     }
 
-    private void rewriteNestedStructures(AbstractStructure structure, int depth, RewriteDebug debug) {
+    private void rewriteNestedStructures(AbstractStructure structure, int depth, RewriteDebug debug, Player viewer) {
         StructureModifier<InternalStructure> structures = getNestedStructures(structure);
         if (structures == null) {
             return;
@@ -244,12 +257,12 @@ public final class OutgoingMessageRewriteListener {
         for (int i = 0; i < structures.size(); i++) {
             InternalStructure nested = readModifier(structures, i, debug, "structure");
             if (nested != null) {
-                rewriteStructure(nested, depth + 1, debug);
+                rewriteStructure(nested, depth + 1, debug, viewer);
             }
         }
     }
 
-    private void rewriteOptionalNestedStructures(AbstractStructure structure, int depth, RewriteDebug debug) {
+    private void rewriteOptionalNestedStructures(AbstractStructure structure, int depth, RewriteDebug debug, Player viewer) {
         StructureModifier<Optional<InternalStructure>> structures = getOptionalNestedStructures(structure);
         if (structures == null) {
             return;
@@ -258,7 +271,7 @@ public final class OutgoingMessageRewriteListener {
         for (int i = 0; i < structures.size(); i++) {
             Optional<InternalStructure> nested = readModifier(structures, i, debug, "optional-structure");
             if (nested != null) {
-                nested.ifPresent(internalStructure -> rewriteStructure(internalStructure, depth + 1, debug));
+                nested.ifPresent(internalStructure -> rewriteStructure(internalStructure, depth + 1, debug, viewer));
             }
         }
     }
@@ -304,7 +317,7 @@ public final class OutgoingMessageRewriteListener {
         return null;
     }
 
-    private WrappedChatComponent rewriteWrappedComponent(WrappedChatComponent wrapped, RewriteDebug debug) {
+    private WrappedChatComponent rewriteWrappedComponent(WrappedChatComponent wrapped, RewriteDebug debug, Player viewer) {
         if (wrapped == null) {
             return null;
         }
@@ -316,7 +329,7 @@ public final class OutgoingMessageRewriteListener {
         debug.componentJsons++;
         debug.addSample(json);
         Component original = GsonComponentSerializer.gson().deserialize(json);
-        Component rewritten = nameRewriteService.rewriteOnlinePlayerNames(original);
+        Component rewritten = nameRewriteService.rewriteOnlinePlayerNames(original, viewer);
         if (original.equals(rewritten)) {
             return null;
         }
@@ -327,9 +340,9 @@ public final class OutgoingMessageRewriteListener {
         return WrappedChatComponent.fromJson(rewrittenJson);
     }
 
-    private Object rewriteComponentHandle(Object componentHandle, RewriteDebug debug) {
+    private Object rewriteComponentHandle(Object componentHandle, RewriteDebug debug, Player viewer) {
         WrappedChatComponent wrapped = WrappedChatComponent.fromHandle(componentHandle);
-        WrappedChatComponent rewritten = rewriteWrappedComponent(wrapped, debug);
+        WrappedChatComponent rewritten = rewriteWrappedComponent(wrapped, debug, viewer);
         return rewritten == null ? null : rewritten.getHandle();
     }
 

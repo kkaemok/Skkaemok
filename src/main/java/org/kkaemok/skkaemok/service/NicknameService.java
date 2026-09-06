@@ -1,5 +1,6 @@
 package org.kkaemok.skkaemok.service;
 
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 public final class NicknameService {
@@ -7,7 +8,6 @@ public final class NicknameService {
 
     private final NameManager nameManager;
     private final NametagManager nametagManager;
-    private final SkinManager skinManager;
 
     public NicknameService(NameManager nameManager, NametagManager nametagManager, SkinManager skinManager) {
         if (nameManager == null || nametagManager == null || skinManager == null) {
@@ -15,7 +15,6 @@ public final class NicknameService {
         }
         this.nameManager = nameManager;
         this.nametagManager = nametagManager;
-        this.skinManager = skinManager;
     }
 
     public boolean setNickname(Player player, String nickname) {
@@ -30,9 +29,31 @@ public final class NicknameService {
         if (normalized.length() > MAX_LENGTH) {
             return false;
         }
+        if (normalized.equals(nameManager.getRawNickname(player))) {
+            return true;
+        }
         nameManager.setNickname(player, normalized);
-        SkinData skinData = skinManager.getRawSkin(player);
-        nametagManager.updateForAllViewers(player, normalized, true, skinData);
+        nametagManager.updateForAllViewers(player);
+        return true;
+    }
+
+    public boolean setNickname(Player player, Player viewer, String nickname) {
+        if (player == null || viewer == null || nickname == null) {
+            return false;
+        }
+        String normalized = nickname.trim();
+        if (normalized.isEmpty()) {
+            resetNickname(player, viewer);
+            return true;
+        }
+        if (normalized.length() > MAX_LENGTH) {
+            return false;
+        }
+        if (normalized.equals(nameManager.getRawNickname(player, viewer))) {
+            return true;
+        }
+        nameManager.setNickname(player, viewer, normalized);
+        nametagManager.updateForViewer(player, viewer);
         return true;
     }
 
@@ -40,23 +61,65 @@ public final class NicknameService {
         if (player == null) {
             return;
         }
+        if (!nameManager.hasNickname(player)) {
+            return;
+        }
         nameManager.resetNickname(player);
-        SkinData skinData = skinManager.getRawSkin(player);
-        nametagManager.updateForAllViewers(player, player.getName(), false, skinData);
+        nametagManager.updateForAllViewers(player);
+    }
+
+    public void resetNickname(Player player, Player viewer) {
+        if (player == null || viewer == null) {
+            return;
+        }
+        if (!nameManager.hasNickname(player, viewer)) {
+            return;
+        }
+        nameManager.resetNickname(player, viewer);
+        nametagManager.updateForViewer(player, viewer);
     }
 
     public void refreshDisplay(Player player) {
         if (player == null) {
             return;
         }
-        String nickname = nameManager.loadNickname(player);
-        boolean nicknameActive = nameManager.hasNickname(player);
-        SkinData skinData = skinManager.getRawSkin(player);
-        nametagManager.updateForAllViewers(player, nickname, nicknameActive, skinData);
+        nametagManager.updateForAllViewers(player);
     }
 
     public String resolveNickname(Player player) {
         return nameManager.loadNickname(player);
+    }
+
+    public String resolveNickname(Player player, Player viewer) {
+        return nameManager.loadNickname(player, viewer);
+    }
+
+    public boolean hasCustomNickname(Player player) {
+        return nameManager.hasNickname(player);
+    }
+
+    public boolean hasCustomNickname(Player player, Player viewer) {
+        return nameManager.hasNickname(player, viewer);
+    }
+
+    public Player findUniquePlayer(String visibleName, Player viewer) {
+        if (visibleName == null) {
+            return null;
+        }
+        Player match = null;
+        for (Player candidate : Bukkit.getOnlinePlayers()) {
+            String resolved = viewer == null
+                    ? resolveNickname(candidate)
+                    : resolveNickname(candidate, viewer);
+            if (!visibleName.equals(resolved)) {
+                continue;
+            }
+            if (match != null) {
+                return null;
+            }
+            match = candidate;
+        }
+        return match;
     }
 
     public void reload() {

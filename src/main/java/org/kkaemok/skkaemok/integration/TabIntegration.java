@@ -15,37 +15,42 @@ public final class TabIntegration {
     }
 
     public boolean isTabMissing() {
+        return !isLocalTabAvailable();
+    }
+
+    public boolean isLocalTabAvailable() {
         Plugin tab = Bukkit.getPluginManager().getPlugin("TAB");
-        return tab == null || !tab.isEnabled();
+        return tab != null && tab.isEnabled();
+    }
+
+    public TabStrategy strategy() {
+        if (!plugin.getConfig().getBoolean("tab.integration",
+                plugin.getConfig().getBoolean("integration.tab.use-customtabname", true))) {
+            return TabStrategy.DIRECT;
+        }
+        return isLocalTabAvailable() ? TabStrategy.TAB_API : TabStrategy.DIRECT;
     }
 
     public boolean shouldManageDisplay() {
-        TabMode mode = mode();
-        if (mode == TabMode.OFF || mode == TabMode.PRIORITY) {
-            return true;
-        }
-        if (mode == TabMode.ON) {
-            return false;
-        }
-        return isTabMissing();
+        return true;
     }
 
     public boolean shouldUseTabCustomTabName() {
-        if (isTabMissing()) {
-            return false;
-        }
-        return plugin.getConfig().getBoolean("integration.tab.use-customtabname", true);
+        return strategy() == TabStrategy.TAB_API;
     }
 
-    public boolean isPriorityMode() {
-        return mode() == TabMode.PRIORITY;
+    public boolean isReapplyEnabled() {
+        return plugin.getConfig().getBoolean("tab.reapply.enabled",
+                plugin.getConfig().getBoolean("integration.tab.priority-reapply.enabled", true));
     }
 
-    public int getPriorityDelayTicks() {
-        return plugin.getConfig().getInt("integration.tab.priority.delay-ticks", 10);
+    public int getReapplyDelayTicks() {
+        return plugin.getConfig().getInt("tab.reapply.delay-ticks",
+                plugin.getConfig().getInt("integration.tab.priority.delay-ticks", 10));
     }
 
-    private TabMode mode() {
-        return TabMode.fromString(plugin.getConfig().getString("integration.tab.mode", "PRIORITY"));
+    public String getCustomNameFormat() {
+        return plugin.getConfig().getString("tab.custom-name-format",
+                plugin.getConfig().getString("integration.tab.customtabname.format", "%nickname%"));
     }
 }

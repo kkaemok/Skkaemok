@@ -17,12 +17,10 @@ public final class ChatCommandDecorateListener implements Listener {
     private final JavaPlugin plugin;
     private final NameRewriteService nameRewriteService;
 
-    public ChatCommandDecorateListener(JavaPlugin plugin, NameRewriteService nameRewriteService) {
-        if (plugin == null) {
-            throw new IllegalArgumentException("Plugin cannot be null");
-        }
-        if (nameRewriteService == null) {
-            throw new IllegalArgumentException("NameRewriteService cannot be null");
+    public ChatCommandDecorateListener(JavaPlugin plugin,
+                                       NameRewriteService nameRewriteService) {
+        if (plugin == null || nameRewriteService == null) {
+            throw new IllegalArgumentException("Dependencies cannot be null");
         }
         this.plugin = plugin;
         this.nameRewriteService = nameRewriteService;

@@ -8,46 +8,57 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.kkaemok.skkaemok.service.ChatNameService;
 import org.kkaemok.skkaemok.service.NameManager;
 import org.kkaemok.skkaemok.service.NametagManager;
-import org.kkaemok.skkaemok.service.SkinData;
 import org.kkaemok.skkaemok.service.SkinManager;
+import org.kkaemok.skkaemok.service.TablistNameManager;
 
 public final class PlayerSyncListener implements Listener {
     private final NameManager nameManager;
     private final SkinManager skinManager;
     private final NametagManager nametagManager;
+    private final TablistNameManager tablistNameManager;
+    private final ChatNameService chatNameService;
 
-    public PlayerSyncListener(NameManager nameManager, SkinManager skinManager, NametagManager nametagManager) {
-        if (nameManager == null || skinManager == null || nametagManager == null) {
+    public PlayerSyncListener(NameManager nameManager,
+                              SkinManager skinManager,
+                              NametagManager nametagManager,
+                              TablistNameManager tablistNameManager,
+                              ChatNameService chatNameService) {
+        if (nameManager == null || skinManager == null || nametagManager == null
+                || tablistNameManager == null || chatNameService == null) {
             throw new IllegalArgumentException("Managers cannot be null");
         }
         this.nameManager = nameManager;
         this.skinManager = skinManager;
         this.nametagManager = nametagManager;
+        this.tablistNameManager = tablistNameManager;
+        this.chatNameService = chatNameService;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onJoin(PlayerJoinEvent event) {
         Player viewer = event.getPlayer();
+        chatNameService.applyStoredChatName(viewer);
         applyNicknameToJoinMessage(event, viewer);
 
         for (Player target : Bukkit.getOnlinePlayers()) {
-            String rawNickname = nameManager.getRawNickname(target);
-            SkinData skinData = skinManager.getRawSkin(target);
-            boolean nicknameActive = rawNickname != null;
-            if (nicknameActive || skinData != null) {
-                String displayName = nameManager.loadNickname(target);
-                nametagManager.updateForViewer(target, viewer, displayName, nicknameActive, skinData);
+            boolean nicknameActive = nameManager.hasAnyNickname(target);
+            boolean skinActive = skinManager.hasAnyCustomSkin(target);
+            boolean tablistActive = tablistNameManager.hasAnyTablistName(target);
+            boolean managedDecorationActive = nametagManager.hasManagedDecoration(target);
+            if (nicknameActive || skinActive || tablistActive || managedDecorationActive) {
+                nametagManager.updateForViewer(target, viewer);
             }
         }
 
-        String viewerNickname = nameManager.getRawNickname(viewer);
-        SkinData viewerSkin = skinManager.getRawSkin(viewer);
-        boolean viewerNicknameActive = viewerNickname != null;
-        if (viewerNicknameActive || viewerSkin != null) {
-            String displayName = nameManager.loadNickname(viewer);
-            nametagManager.updateForAllViewers(viewer, displayName, viewerNicknameActive, viewerSkin);
+        boolean viewerNicknameActive = nameManager.hasAnyNickname(viewer);
+        boolean viewerSkinActive = skinManager.hasAnyCustomSkin(viewer);
+        boolean viewerTablistActive = tablistNameManager.hasAnyTablistName(viewer);
+        boolean viewerManagedDecorationActive = nametagManager.hasManagedDecoration(viewer);
+        if (viewerNicknameActive || viewerSkinActive || viewerTablistActive || viewerManagedDecorationActive) {
+            nametagManager.updateForAllViewers(viewer);
         }
     }
 
