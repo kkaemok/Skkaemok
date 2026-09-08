@@ -1,5 +1,10 @@
 # Skkaemok
 
+[![GitHub Downloads](https://img.shields.io/github/downloads/kkaemok/skkaemok/total?style=for-the-badge&label=GitHub%20Downloads&logo=github&color=181717)](https://github.com/kkaemok/skkaemok/releases)
+[![Modrinth](https://img.shields.io/modrinth/dt/skkaemok?style=for-the-badge&label=Modrinth)](https://modrinth.com/plugin/skkaemok)
+[![SpigotMC](https://img.shields.io/spiget/downloads/134313?style=for-the-badge&label=SpigotMC&color=ed8106)](https://www.spigotmc.org/resources/skkaemok.134313/)
+[![bStats](https://img.shields.io/bstats/players/30391?style=for-the-badge&label=bStats)](https://bstats.org/plugin/bukkit/Skkaemok/30391)
+
 Skkaemok is a Java addon for Skript on Paper. It controls player nametags,
 tablist names, chat names, and skins, including values that differ for each
 viewer.
@@ -260,3 +265,5 @@ command /nick <text>:
 ```
 
 [![SkriptHubViewTheDocs](http://skripthub.net/static/addon/ViewTheDocsButton.png)](http://skripthub.net/docs/?addon=skkaemok)
+
+
