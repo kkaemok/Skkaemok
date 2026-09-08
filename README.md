@@ -259,4 +259,4 @@ command /nick <text>:
         set nametag of player to arg-1
 ```
 
-[SkriptHub documentation](http://skripthub.net/docs/?addon=skkaemok)
+[![SkriptHubViewTheDocs](http://skripthub.net/static/addon/ViewTheDocsButton.png)](http://skripthub.net/docs/?addon=skkaemok)
