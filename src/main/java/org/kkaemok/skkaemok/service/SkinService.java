@@ -21,6 +21,9 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,7 +34,7 @@ public final class SkinService {
     private static final Pattern NAME_PATTERN = Pattern.compile("^[A-Za-z0-9_]{3,16}$");
 
     private final JavaPlugin plugin;
-    private final NameManager nameManager;
+
     private final SkinManager skinManager;
     private final NametagManager nametagManager;
     private final Gson gson;
@@ -51,13 +54,16 @@ public final class SkinService {
     private long mineSkinMaxPollMs;
     private Duration mineSkinRequestTimeout;
     private boolean allowUnsignedUrl;
+    private final SkinRequests requests = new SkinRequests();
+    private final Map<UUID, Set<ProfileProperty>> originalTextures = new java.util.HashMap<>();
+    private volatile boolean closed;
 
     public SkinService(JavaPlugin plugin, NameManager nameManager, SkinManager skinManager, NametagManager nametagManager) {
         if (plugin == null || nameManager == null || skinManager == null || nametagManager == null) {
             throw new IllegalArgumentException("Dependencies cannot be null");
         }
         this.plugin = plugin;
-        this.nameManager = nameManager;
+
         this.skinManager = skinManager;
         this.nametagManager = nametagManager;
         this.gson = new Gson();
@@ -66,6 +72,7 @@ public final class SkinService {
     }
 
     public void reloadConfig() {
+        requests.clear();
         FileConfiguration config = plugin.getConfig();
         String profileApiBase = config.getString("skin.mojang.api-base", "https://api.mojang.com");
         String sessionApiBase = config.getString("skin.mojang.session-base", "https://sessionserver.mojang.com");
@@ -117,6 +124,7 @@ public final class SkinService {
             warn("Failed to read skin from player " + source.getName());
             return false;
         }
+        requests.invalidate(new SkinRequests.Key(target.getUniqueId(), null));
         applySkin(target, skinData);
         return true;
     }
@@ -130,6 +138,7 @@ public final class SkinService {
             warn("Failed to read skin from player " + source.getName());
             return false;
         }
+        requests.invalidate(new SkinRequests.Key(target.getUniqueId(), viewer.getUniqueId()));
         applyViewerSkin(target, viewer, skinData);
         return true;
     }
@@ -144,13 +153,7 @@ public final class SkinService {
             return;
         }
 
-        fetchSkinFromName(normalized).thenAccept(skinData -> {
-            if (skinData == null) {
-                warn("Failed to fetch skin for " + normalized);
-                return;
-            }
-            applySkin(target, skinData);
-        });
+        resolveAsync(target, null, () -> fetchSkinFromName(normalized), null);
     }
 
     public void setSkinFromName(Player target, Player viewer, String sourceName) {
@@ -162,13 +165,7 @@ public final class SkinService {
             warn("Invalid skin source name: " + sourceName);
             return;
         }
-        fetchSkinFromName(normalized).thenAccept(skinData -> {
-            if (skinData == null) {
-                warn("Failed to fetch skin for " + normalized);
-                return;
-            }
-            applyViewerSkin(target, viewer, skinData);
-        });
+        resolveAsync(target, viewer, () -> fetchSkinFromName(normalized), null);
     }
 
     public boolean setSkinFromUrl(Player target, String url) {
@@ -188,17 +185,7 @@ public final class SkinService {
             warn("MineSkin API key is not set. Anonymous requests are rate-limited and may fail.");
         }
 
-        fetchMineSkinFromUrlAsync(normalized).thenAccept(skinData -> {
-            SkinData resolved = skinData;
-            if (resolved == null && allowUnsignedUrl) {
-                resolved = buildUnsignedSkinFromUrl(normalized);
-            }
-            if (resolved == null) {
-                warn("Failed to apply skin from URL: " + normalized);
-                return;
-            }
-            applySkin(target, resolved);
-        });
+        resolveAsync(target, null, () -> fetchMineSkinFromUrlAsync(normalized), normalized);
         return true;
     }
 
@@ -218,52 +205,118 @@ public final class SkinService {
         if (mineSkinApiKey == null && warnedNoKey.compareAndSet(false, true)) {
             warn("MineSkin API key is not set. Anonymous requests are rate-limited and may fail.");
         }
-        fetchMineSkinFromUrlAsync(normalized).thenAccept(skinData -> {
-            SkinData resolved = skinData;
-            if (resolved == null && allowUnsignedUrl) {
-                resolved = buildUnsignedSkinFromUrl(normalized);
-            }
-            if (resolved == null) {
-                warn("Failed to apply skin from URL: " + normalized);
-                return;
-            }
-            applyViewerSkin(target, viewer, resolved);
-        });
+        resolveAsync(target, viewer, () -> fetchMineSkinFromUrlAsync(normalized), normalized);
         return true;
     }
 
     public void resetSkin(Player target) {
-        if (target == null) {
-            return;
-        }
-        if (!skinManager.hasCustomSkin(target)) {
-            return;
-        }
+        if (target == null) return;
+        requests.invalidate(new SkinRequests.Key(target.getUniqueId(), null));
+        if (!skinManager.hasCustomSkin(target)) return;
         skinManager.resetSkin(target);
-        UUID uuid = target.getUniqueId();
-        fetchSkinFromUuid(uuid).thenAccept(skinData -> {
-            if (skinData != null) {
-                applyResolvedOriginalSkin(target, skinData);
-                return;
-            }
-            warn("Failed to fetch original Mojang skin for " + target.getName() + " (" + uuid + ")");
-            refreshNametagWithoutCustomSkin(target);
-        }).exceptionally(ex -> {
-            warn("Error resetting skin for " + target.getName() + ": " + ex.getMessage());
-            refreshNametagWithoutCustomSkin(target);
-            return null;
-        });
+        // Restore the captured login textures, without racing a new Mojang lookup
+        // against a newer set/reset operation.
+        Set<ProfileProperty> original = originalTextures.remove(target.getUniqueId());
+        if (original != null && target.isOnline()) {
+            PlayerProfile profile = target.getPlayerProfile();
+            profile.removeProperty("textures");
+            original.forEach(profile::setProperty);
+            nametagManager.updateNativeProfile(target, profile);
+            return;
+        }
+        nametagManager.updateForAllViewers(target);
     }
 
     public void resetSkin(Player target, Player viewer) {
-        if (target == null || viewer == null) {
-            return;
-        }
-        if (!skinManager.hasCustomSkin(target, viewer)) {
-            return;
-        }
+        if (target == null || viewer == null) return;
+        requests.invalidate(new SkinRequests.Key(target.getUniqueId(), viewer.getUniqueId()));
+        if (!skinManager.hasCustomSkin(target, viewer)) return;
         skinManager.resetSkin(target, viewer);
         nametagManager.updateForViewer(target, viewer);
+    }
+
+    private void resolveAsync(Player target, Player viewer, Supplier<CompletableFuture<SkinData>> fetch, String url) {
+        if (closed || !target.isOnline() || (viewer != null && !viewer.isOnline())) return;
+        SkinRequests.Key key = new SkinRequests.Key(target.getUniqueId(), viewer == null ? null : viewer.getUniqueId());
+        UUID token = requests.begin(key);
+        boolean unsigned = allowUnsignedUrl;
+        fetch.get().whenComplete((skin, error) -> {
+            if (closed || !requests.current(key, token)) return;
+            SkinData resolved = skin == null && unsigned && url != null ? buildUnsignedSkinFromUrl(url) : skin;
+            if (error != null || resolved == null) {
+                requests.finish(key, token);
+                warn("Remote skin resolution failed" + (url == null ? "." : " for URL " + url + ".")
+                        + (error == null ? " See the preceding Mojang/MineSkin response." : " " + error.getMessage()));
+                return;
+            }
+            runSync(() -> {
+                if (!requests.current(key, token)) return;
+                requests.finish(key, token);
+                Player currentTarget = Bukkit.getPlayer(key.target());
+                Player currentViewer = key.viewer() == null ? null : Bukkit.getPlayer(key.viewer());
+                if (currentTarget == null || (key.viewer() != null && currentViewer == null)) return;
+                if (currentViewer == null) applySkin(currentTarget, resolved);
+                else applyViewerSkin(currentTarget, currentViewer, resolved);
+            });
+        });
+    }
+
+    private void runSync(Runnable action) {
+        if (closed) return;
+        if (Bukkit.isPrimaryThread()) action.run();
+        else {
+            try {
+                Bukkit.getScheduler().runTask(plugin, () -> { if (!closed) action.run(); });
+            } catch (org.bukkit.plugin.IllegalPluginAccessException ex) {
+                if (!closed) plugin.getLogger().warning("Skin application skipped: plugin is disabled.");
+            }
+        }
+    }
+
+    public void removePlayer(UUID player) {
+        requests.remove(player);
+        originalTextures.remove(player);
+    }
+
+    public void applyStoredSkin(Player player) {
+        if (closed || player == null || !player.isOnline()) return;
+        SkinData stored = skinManager.getRawSkin(player);
+        if (stored != null && stored.isValid()) {
+            if (!sameTexture(extractSkinFromPlayer(player), stored)) applySelfProfile(player, stored);
+            return;
+        }
+        Set<ProfileProperty> original = originalTextures.remove(player.getUniqueId());
+        if (original != null) {
+            PlayerProfile profile = player.getPlayerProfile();
+            profile.removeProperty("textures");
+            original.forEach(profile::setProperty);
+            nametagManager.updateNativeProfile(player, profile);
+        }
+    }
+
+    public void close() {
+        closed = true;
+        requests.clear();
+        // Undo server-profile texture changes so a subsequent enable starts from
+        // the login identity rather than treating our custom skin as the original.
+        for (var entry : originalTextures.entrySet()) {
+            Player player = Bukkit.getPlayer(entry.getKey());
+            if (player == null) continue;
+            try {
+                PlayerProfile profile = player.getPlayerProfile();
+                SkinData managed = skinManager.getRawSkin(player);
+                boolean stillManaged = managed != null && profile.getProperties().stream().anyMatch(property ->
+                        property.getName().equals("textures") && Objects.equals(property.getValue(), managed.getValue())
+                                && Objects.equals(property.getSignature(), managed.getSignature()));
+                if (!stillManaged) continue;
+                profile.removeProperty("textures");
+                entry.getValue().forEach(profile::setProperty);
+                player.setPlayerProfile(profile);
+            } catch (RuntimeException ex) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE, "Failed to restore original skin on disable", ex);
+            }
+        }
+        originalTextures.clear();
     }
 
     public boolean hasCustomSkin(Player target) {
@@ -282,24 +335,17 @@ public final class SkinService {
         }
 
         Runnable task = () -> {
+            if (closed || !target.isOnline()) return;
             if (sameTexture(skinManager.getRawSkin(target), skinData)) {
                 return;
             }
             skinManager.setSkin(target, skinData);
             if (target.isOnline()) {
                 applySelfProfile(target, skinData);
-                String displayName = nameManager.loadNickname(target);
-                boolean nicknameActive = nameManager.hasNickname(target);
-                nametagManager.updateForAllViewers(target, displayName, nicknameActive, skinData);
-                scheduleSelfRefresh(target, skinData);
             }
         };
 
-        if (Bukkit.isPrimaryThread()) {
-            task.run();
-        } else {
-            Bukkit.getScheduler().runTask(plugin, task);
-        }
+        runSync(task);
     }
 
     private void applyViewerSkin(Player target, Player viewer, SkinData skinData) {
@@ -310,6 +356,7 @@ public final class SkinService {
             return;
         }
         Runnable task = () -> {
+            if (closed || !target.isOnline() || !viewer.isOnline()) return;
             if (sameTexture(skinManager.getRawSkin(target, viewer), skinData)) {
                 return;
             }
@@ -318,11 +365,7 @@ public final class SkinService {
                 nametagManager.updateForViewer(target, viewer);
             }
         };
-        if (Bukkit.isPrimaryThread()) {
-            task.run();
-        } else {
-            Bukkit.getScheduler().runTask(plugin, task);
-        }
+        runSync(task);
     }
 
     private SkinData extractSkinFromPlayer(Player source) {
@@ -349,60 +392,22 @@ public final class SkinService {
     private void applySelfProfile(Player target, SkinData skinData) {
         try {
             PlayerProfile profile = target.getPlayerProfile();
+            originalTextures.computeIfAbsent(target.getUniqueId(), ignored -> {
+                Set<ProfileProperty> textures = new HashSet<>();
+                for (ProfileProperty property : profile.getProperties()) {
+                    if (property.getName().equals("textures")) textures.add(property);
+                }
+                return Set.copyOf(textures);
+            });
             profile.removeProperty("textures");
             if (skinData.getSignature() == null || skinData.getSignature().isBlank()) {
                 profile.setProperty(new ProfileProperty("textures", skinData.getValue()));
             } else {
                 profile.setProperty(new ProfileProperty("textures", skinData.getValue(), skinData.getSignature()));
             }
-            target.setPlayerProfile(profile);
-        } catch (NoClassDefFoundError | NoSuchMethodError e) {
-            // Paper API not available; skip self profile update.
-        }
-    }
-
-    private void scheduleSelfRefresh(Player target, SkinData skinData) {
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (!target.isOnline()) {
-                return;
-            }
-            String displayName = nameManager.loadNickname(target);
-            boolean nicknameActive = nameManager.hasNickname(target);
-            nametagManager.updateForViewer(target, target, displayName, nicknameActive, skinData);
-        }, 2L);
-    }
-
-    private void applyResolvedOriginalSkin(Player target, SkinData skinData) {
-        Runnable task = () -> {
-            if (!target.isOnline()) {
-                return;
-            }
-            applySelfProfile(target, skinData);
-            String displayName = nameManager.loadNickname(target);
-            boolean nicknameActive = nameManager.hasNickname(target);
-            nametagManager.updateForAllViewers(target, displayName, nicknameActive, skinData);
-            scheduleSelfRefresh(target, skinData);
-        };
-        if (Bukkit.isPrimaryThread()) {
-            task.run();
-        } else {
-            Bukkit.getScheduler().runTask(plugin, task);
-        }
-    }
-
-    private void refreshNametagWithoutCustomSkin(Player target) {
-        Runnable task = () -> {
-            if (!target.isOnline()) {
-                return;
-            }
-            String displayName = nameManager.loadNickname(target);
-            boolean nicknameActive = nameManager.hasNickname(target);
-            nametagManager.updateForAllViewers(target, displayName, nicknameActive, null);
-        };
-        if (Bukkit.isPrimaryThread()) {
-            task.run();
-        } else {
-            Bukkit.getScheduler().runTask(plugin, task);
+            nametagManager.updateNativeProfile(target, profile);
+        } catch (RuntimeException e) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE, "Failed to update the player's own skin profile", e);
         }
     }
 
@@ -414,20 +419,6 @@ public final class SkinService {
                 future.complete(skinData);
             } catch (Exception e) {
                 warn("Error fetching skin for " + name + ": " + e.getMessage());
-                future.complete(null);
-            }
-        });
-        return future;
-    }
-
-    private CompletableFuture<SkinData> fetchSkinFromUuid(UUID uuid) {
-        CompletableFuture<SkinData> future = new CompletableFuture<>();
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                SkinData skinData = fetchSkinFromUuidSync(uuid);
-                future.complete(skinData);
-            } catch (Exception e) {
-                warn("Error fetching skin for UUID " + uuid + ": " + e.getMessage());
                 future.complete(null);
             }
         });
@@ -472,27 +463,6 @@ public final class SkinService {
         return extractSkinFromSessionJson(sessionJson, "name:" + name);
     }
 
-    private SkinData fetchSkinFromUuidSync(UUID uuid) throws Exception {
-        if (uuid == null) {
-            return null;
-        }
-        String normalizedUuid = uuid.toString().replace("-", "");
-        String sessionUrl = sessionApiBase + "/session/minecraft/profile/" + normalizedUuid + "?unsigned=false";
-        HttpRequest sessionRequest = HttpRequest.newBuilder()
-                .uri(URI.create(sessionUrl))
-                .timeout(requestTimeout)
-                .GET()
-                .build();
-
-        HttpResponse<String> sessionResponse = httpClient.send(sessionRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        if (sessionResponse.statusCode() != 200) {
-            return null;
-        }
-
-        JsonObject sessionJson = gson.fromJson(sessionResponse.body(), JsonObject.class);
-        return extractSkinFromSessionJson(sessionJson, "uuid:" + uuid);
-    }
-
     private SkinData extractSkinFromSessionJson(JsonObject sessionJson, String source) {
         if (sessionJson == null || !sessionJson.has("properties")) {
             return null;
@@ -523,12 +493,7 @@ public final class SkinService {
 
     private CompletableFuture<SkinData> fetchMineSkinFromUrlAsync(String url) {
         if (useMineSkinQueue && mineSkinApiKey != null) {
-            return requestMineSkinQueueAsync(url).thenCompose(result -> {
-                if (result != null) {
-                    return CompletableFuture.completedFuture(result);
-                }
-                return requestMineSkinGenerateAsync(url);
-            });
+            return requestMineSkinQueueAsync(url);
         }
         return requestMineSkinGenerateAsync(url);
     }
@@ -553,6 +518,9 @@ public final class SkinService {
             if (response.status == 429) {
                 warnRateLimit("MineSkin queue rate limited", response.body);
                 return CompletableFuture.completedFuture(null);
+            }
+            if (response.status == 404 || response.status == 405) {
+                return requestMineSkinGenerateAsync(url);
             }
             warn("MineSkin queue request failed with status " + response.status + ".");
             logMineSkinErrorDetails(response.body);
@@ -587,7 +555,8 @@ public final class SkinService {
     }
 
     private void scheduleMineSkinPoll(String jobId, String source, long deadline, CompletableFuture<SkinData> future) {
-        if (future.isDone()) {
+        if (closed || future.isDone()) {
+            future.complete(null);
             return;
         }
         if (System.currentTimeMillis() >= deadline) {
@@ -630,6 +599,7 @@ public final class SkinService {
             if (waitMs != null && waitMs > delayMs) {
                 delayMs = waitMs;
             }
+            delayMs = Math.min(delayMs, Math.max(1L, deadline - System.currentTimeMillis()));
             scheduleMineSkinPollLater(jobId, source, deadline, future, delayMs);
         }).exceptionally(ex -> {
             warn("MineSkin job status request failed: " + ex.getMessage());
@@ -639,9 +609,14 @@ public final class SkinService {
     }
 
     private void scheduleMineSkinPollLater(String jobId, String source, long deadline, CompletableFuture<SkinData> future, long delayMs) {
+        if (closed) { future.complete(null); return; }
         long delayTicks = Math.max(1L, delayMs / 50L);
-        Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () ->
-                scheduleMineSkinPoll(jobId, source, deadline, future), delayTicks);
+        try {
+            Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () ->
+                    scheduleMineSkinPoll(jobId, source, deadline, future), delayTicks);
+        } catch (org.bukkit.plugin.IllegalPluginAccessException ex) {
+            future.complete(null);
+        }
     }
 
     private JsonObject buildMineSkinRequestBody(String url) {
@@ -681,13 +656,18 @@ public final class SkinService {
 
     private <T> CompletableFuture<T> runAsync(Supplier<T> supplier) {
         CompletableFuture<T> future = new CompletableFuture<>();
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            try {
-                future.complete(supplier.get());
-            } catch (Exception e) {
-                future.completeExceptionally(e);
-            }
-        });
+        if (closed) { future.complete(null); return future; }
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                try {
+                    future.complete(supplier.get());
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
+                }
+            });
+        } catch (org.bukkit.plugin.IllegalPluginAccessException ex) {
+            future.complete(null);
+        }
         return future;
     }
 
@@ -725,6 +705,10 @@ public final class SkinService {
         String value = getString(data, "value");
         String signature = getString(data, "signature");
         if (value == null || value.isBlank()) {
+            return null;
+        }
+        if ((signature == null || signature.isBlank()) && !allowUnsignedUrl) {
+            warn("MineSkin returned an unsigned texture; skin.url.allow-unsigned is disabled.");
             return null;
         }
         return new SkinData(value, signature, source, System.currentTimeMillis());
@@ -866,7 +850,7 @@ public final class SkinService {
         return trimmed;
     }
 
-    private String normalizeUrl(String url) {
+    static String normalizeUrl(String url) {
         if (url == null) {
             return null;
         }
@@ -874,10 +858,21 @@ public final class SkinService {
         if (normalized.isEmpty()) {
             return null;
         }
-        if (!normalized.startsWith("https://")) {
+        try {
+            URI uri = new URI(normalized).parseServerAuthority();
+            String scheme = uri.getScheme();
+            if (!("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
+                    || uri.isOpaque() || uri.getHost() == null || uri.getHost().isBlank()
+                    || uri.getRawUserInfo() != null || uri.getRawFragment() != null
+                    || uri.getPort() == 0 || uri.getPort() > 65535
+                    || uri.getRawAuthority().endsWith(":")) {
+                return null;
+            }
+            // Keep HTTPS when supplied; never downgrade or probe the image locally.
+            return uri.toASCIIString();
+        } catch (java.net.URISyntaxException | IllegalArgumentException ex) {
             return null;
         }
-        return normalized;
     }
 
     private String normalizeApiBase(String base) {

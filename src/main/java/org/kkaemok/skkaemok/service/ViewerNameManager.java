@@ -47,9 +47,10 @@ public final class ViewerNameManager {
         if (channel == null || target == null || viewer == null || value == null || value.isBlank()) {
             return;
         }
-        values.get(channel)
+        String previous = values.get(channel)
                 .computeIfAbsent(target.getUniqueId(), ignored -> new ConcurrentHashMap<>())
                 .put(viewer.getUniqueId(), value);
+        if (value.equals(previous)) return;
         saveNow();
     }
 
@@ -61,7 +62,7 @@ public final class ViewerNameManager {
         if (viewers == null) {
             return;
         }
-        viewers.remove(viewer.getUniqueId());
+        if (viewers.remove(viewer.getUniqueId()) == null) return;
         if (viewers.isEmpty()) {
             values.get(channel).remove(target.getUniqueId(), viewers);
         }

@@ -75,7 +75,7 @@ public final class SkinManager {
             return;
         }
         skins.put(player.getUniqueId(), skinData);
-        saveNow();
+        storage.save(skins);
     }
 
     public void setSkin(UUID uuid, SkinData skinData) {
@@ -83,7 +83,7 @@ public final class SkinManager {
             return;
         }
         skins.put(uuid, skinData);
-        saveNow();
+        storage.save(skins);
     }
 
     public void setSkin(Player target, Player viewer, SkinData skinData) {
@@ -99,16 +99,16 @@ public final class SkinManager {
         if (player == null) {
             return;
         }
-        skins.remove(player.getUniqueId());
-        saveNow();
+        if (skins.remove(player.getUniqueId()) == null) return;
+        storage.save(skins);
     }
 
     public void resetSkin(UUID uuid) {
         if (uuid == null) {
             return;
         }
-        skins.remove(uuid);
-        saveNow();
+        if (skins.remove(uuid) == null) return;
+        storage.save(skins);
     }
 
     public void resetSkin(Player target, Player viewer) {
@@ -119,7 +119,7 @@ public final class SkinManager {
         if (viewers == null) {
             return;
         }
-        viewers.remove(viewer.getUniqueId());
+        if (viewers.remove(viewer.getUniqueId()) == null) return;
         if (viewers.isEmpty()) {
             viewerSkins.remove(target.getUniqueId(), viewers);
         }

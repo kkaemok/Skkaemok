@@ -12,6 +12,7 @@ import org.kkaemok.skkaemok.service.ChatNameService;
 import org.kkaemok.skkaemok.service.NameManager;
 import org.kkaemok.skkaemok.service.NametagManager;
 import org.kkaemok.skkaemok.service.SkinManager;
+import org.kkaemok.skkaemok.service.SkinService;
 import org.kkaemok.skkaemok.service.TablistNameManager;
 
 public final class PlayerSyncListener implements Listener {
@@ -20,6 +21,13 @@ public final class PlayerSyncListener implements Listener {
     private final NametagManager nametagManager;
     private final TablistNameManager tablistNameManager;
     private final ChatNameService chatNameService;
+    private SkinService skinService;
+
+    public PlayerSyncListener(NameManager names, SkinManager skins, NametagManager tags,
+                              TablistNameManager tabs, ChatNameService chat, SkinService skinService) {
+        this(names, skins, tags, tabs, chat);
+        this.skinService = skinService;
+    }
 
     public PlayerSyncListener(NameManager nameManager,
                               SkinManager skinManager,
@@ -40,6 +48,7 @@ public final class PlayerSyncListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onJoin(PlayerJoinEvent event) {
         Player viewer = event.getPlayer();
+        if (skinService != null) skinService.applyStoredSkin(viewer);
         chatNameService.applyStoredChatName(viewer);
         applyNicknameToJoinMessage(event, viewer);
 
@@ -65,6 +74,7 @@ public final class PlayerSyncListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
+        if (skinService != null) skinService.removePlayer(player.getUniqueId());
         applyNicknameToQuitMessage(event, player);
         nametagManager.removePlayer(player);
     }

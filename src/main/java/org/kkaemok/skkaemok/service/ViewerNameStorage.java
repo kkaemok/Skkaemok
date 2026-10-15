@@ -96,7 +96,7 @@ public final class ViewerNameStorage {
                 }
                 raw.put(channel.storageKey(), targets);
             }
-            Files.writeString(filePath, gson.toJson(raw, FILE_TYPE), StandardCharsets.UTF_8);
+            AtomicJsonFile.write(filePath, gson.toJson(raw, FILE_TYPE));
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to save viewer-names.json", e);
         }

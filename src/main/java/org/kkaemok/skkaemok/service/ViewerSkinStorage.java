@@ -81,7 +81,7 @@ public final class ViewerSkinStorage {
                     raw.put(targetEntry.getKey().toString(), viewers);
                 }
             }
-            Files.writeString(filePath, gson.toJson(raw, FILE_TYPE), StandardCharsets.UTF_8);
+            AtomicJsonFile.write(filePath, gson.toJson(raw, FILE_TYPE));
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to save viewer-skins.json", e);
         }

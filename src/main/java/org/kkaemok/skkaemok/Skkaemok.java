@@ -121,7 +121,7 @@ public final class Skkaemok extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new CommandInterceptor(chatNameManager), this);
         Bukkit.getPluginManager().registerEvents(new DeathListener(nameRewriteService), this);
         Bukkit.getPluginManager().registerEvents(new AdvancementListener(nameRewriteService), this);
-        Bukkit.getPluginManager().registerEvents(new PlayerSyncListener(nameManager, skinManager, nametagManager, tablistNameManager, chatNameService), this);
+        Bukkit.getPluginManager().registerEvents(new PlayerSyncListener(nameManager, skinManager, nametagManager, tablistNameManager, chatNameService, skinService), this);
         Bukkit.getPluginManager().registerEvents(new UpdateNotifyListener(this, updateChecker), this);
         registerOutgoingMessageRewriteListener();
         updateChecker.start();
@@ -145,6 +145,7 @@ public final class Skkaemok extends JavaPlugin {
         if (nametagManager != null) {
             nametagManager.close();
         }
+        if (skinService != null) skinService.close();
         if (nameManager != null) {
             nameManager.saveNow();
         }
@@ -233,13 +234,13 @@ public final class Skkaemok extends JavaPlugin {
             return;
         }
         Bukkit.getOnlinePlayers().forEach(player -> {
+            if (skinService != null) skinService.applyStoredSkin(player);
             chatNameService.applyStoredChatName(player);
             chatTeamStates.put(player.getUniqueId(), vanillaTeamService.getInfo(player));
-            boolean skinActive = skinManager.hasAnyCustomSkin(player);
-            boolean tablistActive = tablistNameManager.hasAnyTablistName(player);
-            boolean nicknameActive = nameManager.hasAnyNickname(player);
-            boolean managedDecorationActive = nametagManager.hasManagedDecoration(player);
-            if (nicknameActive || skinActive || tablistActive || managedDecorationActive) {
+            // Also reconcile resets loaded from disk/configuration on reload.
+            if (nameManager.hasAnyNickname(player) || skinManager.hasAnyCustomSkin(player)
+                    || tablistNameManager.hasAnyTablistName(player) || nametagManager.hasManagedDecoration(player)
+                    || nametagManager.hasClientState(player)) {
                 nametagManager.updateForAllViewers(player);
             }
         });

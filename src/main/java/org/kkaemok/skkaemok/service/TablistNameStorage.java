@@ -69,7 +69,7 @@ public final class TablistNameStorage {
                 }
             }
             String json = gson.toJson(raw, MAP_TYPE);
-            Files.writeString(filePath, json, StandardCharsets.UTF_8);
+            AtomicJsonFile.write(filePath, json);
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Failed to save tablist-names.json", e);
         }

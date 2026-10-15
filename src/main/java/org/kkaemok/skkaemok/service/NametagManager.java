@@ -7,12 +7,7 @@ import com.comphenix.protocol.events.ListenerPriority;
 import com.comphenix.protocol.events.PacketAdapter;
 import com.comphenix.protocol.events.PacketContainer;
 import com.comphenix.protocol.events.PacketEvent;
-import com.comphenix.protocol.wrappers.EnumWrappers;
-import com.comphenix.protocol.wrappers.PlayerInfoData;
 import com.comphenix.protocol.wrappers.WrappedChatComponent;
-import com.comphenix.protocol.wrappers.WrappedGameProfile;
-import com.comphenix.protocol.wrappers.WrappedRemoteChatSessionData;
-import com.comphenix.protocol.wrappers.WrappedSignedProperty;
 import com.comphenix.protocol.wrappers.WrappedTeamParameters;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
@@ -26,9 +21,7 @@ import org.kkaemok.skkaemok.integration.TabIntegration;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -68,7 +61,11 @@ public final class NametagManager {
     private final DisplayFormatter formatter;
     private final ConcurrentHashMap<UUID, String> teamNames;
     private final ConcurrentHashMap<UUID, Set<String>> viewerTeams;
-    private final ConcurrentHashMap<UUID, BukkitTask> priorityTasks;
+    private final ConcurrentHashMap<ClientPlayerInfo.Pair, BukkitTask> priorityTasks;
+    private final ConcurrentHashMap<UUID, BukkitTask> globalPriorityTasks = new ConcurrentHashMap<>();
+    private final ClientPlayerInfo clientPlayerInfo;
+    private record TeamState(String entry, Component prefix, Component suffix, VanillaTeamService.TeamInfo source) { }
+    private final ConcurrentHashMap<ClientPlayerInfo.Pair, TeamState> appliedTeams = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ActiveDisplay> activeDisplays;
     private final ConcurrentHashMap<UUID, VanillaTeamService.TeamInfo> mirroredTeamState;
     private final AtomicBoolean teamRefreshScheduled;
@@ -110,6 +107,7 @@ public final class NametagManager {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to initialize ProtocolLib", e);
         }
+        this.clientPlayerInfo = new ClientPlayerInfo(plugin, protocolManager);
 
         this.scoreboardTeamListener = new PacketAdapter(
                 plugin,
@@ -126,6 +124,7 @@ public final class NametagManager {
     }
 
     public void reload() {
+        cancelPriorityTasks();
         formatter.reload();
         restartTeamPolling();
     }
@@ -134,15 +133,28 @@ public final class NametagManager {
         applyForAllViewers(target, true);
     }
 
+    public boolean hasClientState(Player target) {
+        return target != null && clientPlayerInfo.hasState(target.getUniqueId());
+    }
+
+    void updateNativeProfile(Player target, com.destroystokyo.paper.profile.PlayerProfile profile) {
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            DisplayParts parts = buildParts(target, viewer);
+            clientPlayerInfo.prepare(target, viewer, parts.profileName(), parts.tabListName(), parts.skinData(), profile);
+        }
+        target.setPlayerProfile(profile);
+        clientPlayerInfo.nativeRefreshComplete(target, Bukkit.getOnlinePlayers());
+        updateForAllViewers(target);
+    }
+
     public void updateForViewer(Player target, Player viewer) {
-        if (target == null || viewer == null) {
+        if (target == null || viewer == null || !target.isOnline() || !viewer.isOnline()) {
             return;
         }
         DisplayParts globalParts = buildParts(target, null);
         rememberActiveDisplay(target, globalParts);
-        applyTabCustomName(target, globalParts);
         applyForViewer(target, viewer, buildParts(target, viewer));
-        schedulePriorityReapply(target);
+        schedulePriorityReapply(target, viewer);
     }
 
     // Compatibility entry points retained for existing internal and external callers.
@@ -178,7 +190,7 @@ public final class NametagManager {
     }
 
     private void applyForAllViewers(Player target, boolean schedulePriority) {
-        if (target == null) {
+        if (target == null || !target.isOnline()) {
             return;
         }
         DisplayParts globalParts = buildParts(target, null);
@@ -196,23 +208,33 @@ public final class NametagManager {
     }
 
     private void applyForViewer(Player target, Player viewer, DisplayParts parts) {
+        applyForViewer(target, viewer, parts, false);
+    }
+
+    private void applyForViewer(Player target, Player viewer, DisplayParts parts, boolean reapplyTeam) {
         if (parts.manageTeam()) {
-            updateTeamForViewer(viewer, target, parts.profileName(), parts.prefix(), parts.suffix(), parts.sourceTeam());
+            updateTeamForViewer(viewer, target, parts.profileName(), parts.prefix(), parts.suffix(), parts.sourceTeam(), reapplyTeam);
         } else {
             removeTeamForViewer(viewer, teamNames.get(target.getUniqueId()));
         }
 
-        WrappedChatComponent displayName = parts.tabListName() == null
-                ? null
-                : toWrappedComponent(parts.tabListName());
-        updatePlayerNameTag(target, viewer, parts.profileName(), displayName, parts.skinData());
+        clientPlayerInfo.apply(target, viewer, parts.profileName(), parts.tabListName(), parts.skinData());
     }
 
     public void removePlayer(Player player) {
         if (player == null) {
             return;
         }
-        cancelPriorityTask(player);
+        UUID id = player.getUniqueId();
+        BukkitTask globalTask = globalPriorityTasks.remove(id);
+        if (globalTask != null) globalTask.cancel();
+        priorityTasks.entrySet().removeIf(entry -> {
+            if (!entry.getKey().target().equals(id) && !entry.getKey().viewer().equals(id)) return false;
+            entry.getValue().cancel();
+            return true;
+        });
+        clientPlayerInfo.remove(id);
+        appliedTeams.keySet().removeIf(pair -> pair.target().equals(id) || pair.viewer().equals(id));
         removeTeam(player);
         viewerTeams.remove(player.getUniqueId());
         activeDisplays.remove(player.getUniqueId());
@@ -221,17 +243,13 @@ public final class NametagManager {
     }
 
     public void close() {
+        clientPlayerInfo.close();
         protocolManager.removePacketListener(scoreboardTeamListener);
         if (teamPollTask != null) {
             teamPollTask.cancel();
             teamPollTask = null;
         }
-        for (BukkitTask task : priorityTasks.values()) {
-            if (task != null) {
-                task.cancel();
-            }
-        }
-        priorityTasks.clear();
+        cancelPriorityTasks();
         for (String teamName : teamNames.values()) {
             forgetTeamForViewers(teamName);
         }
@@ -239,6 +257,7 @@ public final class NametagManager {
         viewerTeams.clear();
         activeDisplays.clear();
         mirroredTeamState.clear();
+        appliedTeams.clear();
         teamRefreshScheduled.set(false);
     }
 
@@ -288,13 +307,7 @@ public final class NametagManager {
                 // A direct custom tablist name is carried by PLAYER_INFO rather than
                 // the scoreboard team, so it must be resent when team decoration changes.
                 if (parts.tabListName() != null) {
-                    updatePlayerNameTag(
-                            target,
-                            viewer,
-                            parts.profileName(),
-                            toWrappedComponent(parts.tabListName()),
-                            parts.skinData()
-                    );
+                    clientPlayerInfo.apply(target, viewer, parts.profileName(), parts.tabListName(), parts.skinData());
                 }
             }
             discardUnusedTeamName(target);
@@ -453,48 +466,46 @@ public final class NametagManager {
         return value != null && !value.isBlank();
     }
 
-    private void schedulePriorityReapply(Player player) {
-        if (player == null) {
-            cancelPriorityTask(player);
-            return;
+    private void schedulePriorityReapply(Player target) {
+        UUID id = target.getUniqueId();
+        BukkitTask previous = globalPriorityTasks.remove(id);
+        if (previous != null) previous.cancel();
+        int delay = tabIntegration.getReapplyDelayTicks();
+        if (tabIntegration.isReapplyEnabled() && delay > 0) {
+            globalPriorityTasks.put(id, Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                globalPriorityTasks.remove(id);
+                Player current = Bukkit.getPlayer(id);
+                if (current != null && plugin.isEnabled()) applyTabCustomName(current, buildParts(current, null));
+            }, delay));
         }
-        boolean nicknameActive = nameManager.hasAnyNickname(player);
-        boolean tablistActive = tablistNameManager.hasAnyTablistName(player);
-        if (!nicknameActive && !tablistActive) {
-            cancelPriorityTask(player);
-            return;
+        for (Player viewer : Bukkit.getOnlinePlayers()) {
+            schedulePriorityReapply(target, viewer);
         }
-        if (!tabIntegration.isReapplyEnabled()) {
-            cancelPriorityTask(player);
-            return;
-        }
-
-        int delayTicks = tabIntegration.getReapplyDelayTicks();
-        if (delayTicks <= 0) {
-            return;
-        }
-
-        cancelPriorityTask(player);
-
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            priorityTasks.remove(player.getUniqueId());
-            if (!player.isOnline()) {
-                return;
-            }
-            applyForAllViewers(player, false);
-        }, delayTicks);
-
-        priorityTasks.put(player.getUniqueId(), task);
     }
 
-    private void cancelPriorityTask(Player player) {
-        if (player == null) {
-            return;
-        }
-        BukkitTask existing = priorityTasks.remove(player.getUniqueId());
-        if (existing != null) {
-            existing.cancel();
-        }
+    private void schedulePriorityReapply(Player target, Player viewer) {
+        ClientPlayerInfo.Pair pair = new ClientPlayerInfo.Pair(target.getUniqueId(), viewer.getUniqueId());
+        BukkitTask previous = priorityTasks.remove(pair);
+        if (previous != null) previous.cancel();
+        int delay = tabIntegration.getReapplyDelayTicks();
+        if (!tabIntegration.isReapplyEnabled() || delay <= 0
+                || (!nameManager.hasAnyNickname(target) && !tablistNameManager.hasAnyTablistName(target))) return;
+        BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            priorityTasks.remove(pair);
+            Player currentTarget = Bukkit.getPlayer(pair.target());
+            Player currentViewer = Bukkit.getPlayer(pair.viewer());
+            if (currentTarget == null || currentViewer == null || !plugin.isEnabled()) return;
+            // Resolve current values at execution time, never capture stale parts.
+            applyForViewer(currentTarget, currentViewer, buildParts(currentTarget, currentViewer), true);
+        }, delay);
+        priorityTasks.put(pair, task);
+    }
+
+    private void cancelPriorityTasks() {
+        globalPriorityTasks.values().forEach(BukkitTask::cancel);
+        globalPriorityTasks.clear();
+        priorityTasks.values().forEach(BukkitTask::cancel);
+        priorityTasks.clear();
     }
 
     private void updateTeamForViewer(Player viewer,
@@ -503,6 +514,16 @@ public final class NametagManager {
                                      Component prefix,
                                      Component suffix,
                                      VanillaTeamService.TeamInfo sourceTeam) {
+        updateTeamForViewer(viewer, target, entryName, prefix, suffix, sourceTeam, false);
+    }
+
+    private void updateTeamForViewer(Player viewer,
+                                     Player target,
+                                     String entryName,
+                                     Component prefix,
+                                     Component suffix,
+                                     VanillaTeamService.TeamInfo sourceTeam,
+                                     boolean reapplyEntry) {
         if (viewer == null || target == null || entryName == null || !viewer.isOnline()) {
             return;
         }
@@ -514,19 +535,36 @@ public final class NametagManager {
         }
 
         Set<String> teams = viewerTeams.computeIfAbsent(viewer.getUniqueId(), ignored -> ConcurrentHashMap.newKeySet());
-        if (teams.remove(teamName)) {
+        ClientPlayerInfo.Pair pair = new ClientPlayerInfo.Pair(target.getUniqueId(), viewer.getUniqueId());
+        TeamState next = new TeamState(entryName, prefix, suffix, sourceTeam);
+        TeamState previous = appliedTeams.get(pair);
+        if (next.equals(previous) && teams.contains(teamName)) {
+            if (reapplyEntry) {
+                try {
+                    // TAB may have reassigned this entry after our original update.
+                    protocolManager.sendServerPacket(viewer,
+                            createTeamPacket(teamName, 3, null, Collections.singletonList(entryName)), false);
+                } catch (Exception ex) {
+                    plugin.getLogger().log(Level.SEVERE, "Failed to reapply nametag team membership", ex);
+                }
+            }
+            return;
+        }
+        boolean sameEntry = previous != null && previous.entry().equals(entryName) && teams.contains(teamName);
+        if (!sameEntry && teams.remove(teamName)) {
             sendTeamRemovePacket(viewer, teamName);
         }
 
         try {
             PacketContainer packet = createTeamPacket(
                     teamName,
-                    0,
+                    sameEntry ? 2 : 0,
                     createTeamParameters(prefix, suffix, sourceTeam),
-                    Collections.singletonList(entryName)
+                    sameEntry ? Collections.emptyList() : Collections.singletonList(entryName)
             );
             protocolManager.sendServerPacket(viewer, packet, false);
             teams.add(teamName);
+            appliedTeams.put(pair, next);
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE, "Error sending fake nametag team packet.", e);
         }
@@ -596,6 +634,8 @@ public final class NametagManager {
             return;
         }
         sendTeamRemovePacket(viewer, teamName);
+        appliedTeams.keySet().removeIf(pair -> pair.viewer().equals(viewer.getUniqueId())
+                && teamName.equals(teamNames.get(pair.target())));
         if (teams.isEmpty()) {
             viewerTeams.remove(viewer.getUniqueId(), teams);
         }
@@ -625,77 +665,6 @@ public final class NametagManager {
     private String createTeamName(UUID uuid) {
         String raw = uuid.toString().replace("-", "");
         return "sm" + raw.substring(0, 13);
-    }
-
-    private void updatePlayerNameTag(Player target, Player viewer, String customName, WrappedChatComponent displayName, SkinData skinData) {
-        if (!target.isOnline() || !viewer.isOnline()) {
-            return;
-        }
-
-        boolean samePlayer = target.getUniqueId().equals(viewer.getUniqueId());
-        if (!samePlayer) {
-            viewer.hidePlayer(plugin, target);
-        }
-
-        try {
-            PacketContainer removePacket = new PacketContainer(PacketType.Play.Server.PLAYER_INFO_REMOVE);
-            removePacket.getUUIDLists().write(0, Collections.singletonList(target.getUniqueId()));
-            protocolManager.sendServerPacket(viewer, removePacket);
-
-            PacketContainer infoPacket = new PacketContainer(PacketType.Play.Server.PLAYER_INFO);
-            EnumSet<EnumWrappers.PlayerInfoAction> actions = EnumSet.of(
-                    EnumWrappers.PlayerInfoAction.ADD_PLAYER,
-                    EnumWrappers.PlayerInfoAction.INITIALIZE_CHAT,
-                    EnumWrappers.PlayerInfoAction.UPDATE_GAME_MODE,
-                    EnumWrappers.PlayerInfoAction.UPDATE_LATENCY,
-                    EnumWrappers.PlayerInfoAction.UPDATE_LISTED,
-                    EnumWrappers.PlayerInfoAction.UPDATE_DISPLAY_NAME
-            );
-            infoPacket.getPlayerInfoActions().write(0, actions);
-
-            WrappedGameProfile originalProfile = WrappedGameProfile.fromPlayer(target);
-            WrappedGameProfile customProfile = new WrappedGameProfile(originalProfile.getUUID(), customName);
-            boolean hasCustomSkin = skinData != null && skinData.isValid();
-            var properties = originalProfile.getProperties();
-            for (String key : properties.keySet()) {
-                for (WrappedSignedProperty prop : properties.get(key)) {
-                    if (hasCustomSkin && "textures".equals(prop.getName())) {
-                        continue;
-                    }
-                    customProfile.getProperties().put(prop.getName(), prop);
-                }
-            }
-            if (hasCustomSkin) {
-                customProfile.getProperties().put("textures",
-                        new WrappedSignedProperty("textures", skinData.getValue(), skinData.getSignature()));
-            }
-
-            WrappedRemoteChatSessionData chatSession = WrappedRemoteChatSessionData.fromPlayer(target);
-
-            PlayerInfoData playerInfoData = new PlayerInfoData(
-                    target.getUniqueId(),
-                    target.getPing(),
-                    true,
-                    EnumWrappers.NativeGameMode.fromBukkit(target.getGameMode()),
-                    customProfile,
-                    displayName,
-                    chatSession
-            );
-
-            List<PlayerInfoData> dataList = Collections.singletonList(playerInfoData);
-            try {
-                infoPacket.getPlayerInfoDataLists().write(0, dataList);
-            } catch (Exception ignored) {
-                infoPacket.getPlayerInfoDataLists().write(1, dataList);
-            }
-            protocolManager.sendServerPacket(viewer, infoPacket);
-        } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Error updating nametag", e);
-        }
-
-        if (!samePlayer) {
-            Bukkit.getScheduler().runTaskLater(plugin, () -> viewer.showPlayer(plugin, target), 2L);
-        }
     }
 
     private WrappedChatComponent toWrappedComponent(Component component) {
