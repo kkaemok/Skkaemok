@@ -9,6 +9,8 @@ version = "1.9"
 
 repositories {
     mavenCentral()
+    maven("https://repo.codemc.io/repository/maven-releases/")
+    maven("https://libraries.minecraft.net/")
     maven {
         name = "papermc-repo"
         url = uri("https://repo.papermc.io/repository/maven-public/")
@@ -34,8 +36,9 @@ dependencies {
     }
 
     compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
-    compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
-    compileOnly("com.github.SkriptLang:Skript:2.9.1")
+    compileOnly("com.github.retrooper:packetevents-spigot:2.14.0")
+    compileOnly("com.mojang:brigadier:1.3.10")
+    compileOnly("com.github.SkriptLang:Skript:2.17.1")
     compileOnly("net.luckperms:api:5.4")
     compileOnly("com.google.code.gson:gson:2.11.0")
     compileOnly("com.google.guava:guava:32.1.3-jre")
@@ -45,7 +48,9 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.mockito:mockito-core:5.14.2")
     testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
-    testImplementation("net.dmulloy2:ProtocolLib:5.4.0")
+    testImplementation("com.github.retrooper:packetevents-spigot:2.14.0")
+    testImplementation("com.mojang:brigadier:1.3.10")
+    testImplementation("com.github.SkriptLang:Skript:2.17.1")
 }
 
 tasks {
@@ -53,7 +58,7 @@ tasks {
         // Configure the Minecraft version for our task.
         // This is the only required configuration besides applying the plugin.
         // Your plugin's jar (or shadowJar if present) will be used automatically.
-        minecraftVersion("1.21")
+        minecraftVersion("1.21.8")
     }
 }
 
@@ -77,6 +82,13 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.test {
     useJUnitPlatform()
+    providers.gradleProperty("nicknameNativeRuntime").orNull?.let { runtime ->
+        classpath = files(fileTree("$runtime/versions") { include("**/*.jar") },
+            fileTree("$runtime/libraries") { include("**/*.jar") }) + classpath
+        systemProperty("skkaemok.nativeCommands", "true")
+        workingDir = layout.buildDirectory.dir("nickname-native-tests").get().asFile.also { it.mkdirs() }
+    }
+    providers.gradleProperty("nicknameTestJava").orNull?.let { executable = it }
 }
 
 tasks.processResources {

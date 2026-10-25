@@ -4,9 +4,9 @@ author: kkaemok
 website: https://github.com/kkaemok/Skkaemok
 version: '${version}'
 main: org.kkaemok.skkaemok.Skkaemok
-api-version: '1.21'
-depend: [ProtocolLib, Skript]
-softdepend: [LuckPerms, TAB]
+api-version: '1.21.5'
+depend: [Skript]
+softdepend: [packetevents, LuckPerms, TAB]
 commands:
   skkaemok:
     description: Skkaemok management commands
@@ -14,4 +14,7 @@ commands:
 permissions:
   skkaemok.op:
     description: Allows Skkaemok management commands.
+    default: op
+  skkaemok.inspect:
+    description: Inspect effective appearances and nickname aliases
     default: op

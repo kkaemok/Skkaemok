@@ -11,14 +11,19 @@ viewer.
 
 ## Requirements
 
-- Java 21
-- Paper 1.21 or later
-- Skript 2.9.1 or a compatible later release
-- ProtocolLib 5.4.0 or a compatible later release
+- Java 21 or newer (use the Java version required by your server)
+- Paper 1.21.5 or later
+- Skript 2.17.1 or a compatible later release
+- PacketEvents 2.14.0 or a compatible later release
 - LuckPerms and TAB are optional
 
 Install the dependencies, put the Skkaemok JAR in `plugins/`, and restart the
 server.
+
+If PacketEvents is missing, Skkaemok downloads the latest stable official Spigot
+JAR automatically. Restart the server once after the download finishes. Existing
+PacketEvents installations are never replaced. Set
+`dependencies.packetevents.auto-download: false` to install it manually.
 
 ## Name resolution
 
@@ -37,6 +42,124 @@ returns `깨목`, while `Steve has a custom nametag for Alex` is false.
 All player lookup expressions search online players only. If more than one
 online player resolves to the requested visible name, the expression returns no
 player instead of choosing one arbitrarily. Matching is exact and case-sensitive.
+
+Native Brigadier player, entity, game-profile, and score-holder arguments also
+accept nametag and chat-name aliases, including viewer-specific names. Real account
+names, UUIDs, selectors, and fake score holders keep their native behavior. Command
+completion displays usable nicknames; quote names containing spaces.
+This command integration needs source-aware Brigadier parsing (verified on Paper
+1.21.8 and 26.2, and Leaf 26.3). Older servers retain native command handling.
+
+## Nicknames and appearances
+
+`nick` changes the nametag, chat name, and tablist name together. It accepts
+online and offline players, including viewer-specific overrides.
+
+```skript
+set nick of player to "Knight"
+set nick of player for {_viewer} to "Stranger"
+set nick of player to "Disguised" for 30 seconds
+reset nick of player
+reset nick of player for {_viewer}
+```
+
+Appearance presets capture the raw overrides for all three name channels and
+any stored skin texture. Applying a preset validates the complete change before
+writing values, then refreshes the player profile once. A missing value restores
+inheritance; it does not copy the source player's real account name.
+
+```skript
+save appearance of player as preset "knight"
+save appearance of player for {_viewer} as preset "stranger"
+apply appearance preset "knight" to player
+apply appearance preset "stranger" to player for viewer {_viewer} for 30 seconds
+reset appearance of player
+reset appearance of player for {_viewer}
+delete appearance preset "knight"
+set {_presets::*} to all appearance presets
+```
+
+For a direct batch, supply the names together. The optional skin source must be
+an online player with an available skin texture. Without it, the stored skin is
+kept. URL and username skins can be resolved first and saved in a preset.
+
+```skript
+apply appearance to player with nametag "Knight", chat "Sir Knight", tablist "Knight"
+apply appearance to player with nametag "Knight", chat "Sir Knight", tablist "Knight" and skin of {_source}
+apply appearance to player for viewer {_viewer} with nametag "Unknown", chat "Stranger", tablist "Unknown" for 20 seconds
+```
+
+Temporary changes stack separately for each channel. Expiry is checked once per
+second and restores the next
+unexpired layer or the previous raw value. A later permanent change takes
+ownership of its channel and cannot be undone by an older timer. Expiry also
+works while players are offline. Temporary changes end on plugin disable or
+server restart; recovery data restores their base values after an interrupted
+shutdown.
+
+Presets are stored in `appearance-presets.json`. Existing name and skin files
+keep their formats. Offline edits use player UUIDs and take effect on join.
+
+## Change results and events
+
+```skript
+set {_status} to last skkaemok change result of player
+set {_reason} to last skkaemok change reason of player
+set {_status} to last skkaemok change result of player for {_viewer}
+
+on appearance changing:
+    if appearance event new nametag is "Blocked":
+        cancel event
+
+on nametag changed:
+    set {_target} to appearance event target
+    set {_viewer} to appearance event viewer
+    set {_old} to appearance event old nametag
+    set {_new} to appearance event new nametag
+    set {_cause} to appearance event cause
+
+on skin applied:
+    send "Skin applied." to console
+
+on skin request failed:
+    send appearance event reason to console
+```
+
+Before-change events (`appearance changing`, `nick changing`, `nametag changing`,
+`chat name changing`, `tablist name changing`, and `skin changing`) can cancel the
+complete batch. Their corresponding `changed` events run after a successful
+change. Expiry and startup recovery restore values without a cancellable event;
+they still publish changed events. A change to the same target/viewer scope from
+inside its change event is rejected as `busy` to prevent recursive updates.
+
+Event expressions expose `target`, optional `viewer`, `old nametag`, `new nametag`,
+`old chat name`, `new chat name`, `old tablist name`, `new tablist name`, and `cause`.
+Skin changes also expose old/new `skin source`, `skin texture`, and `skin signature`.
+Skin failures additionally expose `reason` and `skin source`. Events run on the
+server thread. `skin applied` reports a stored/server-profile change, rather than
+an acknowledgment from every viewer's client.
+
+Results include `success`, `unchanged`, `pending`, `invalid_name`, `too_long`,
+`reserved_alias`, `ambiguous_alias`, `invalid_skin`, `invalid_duration`,
+`unknown_preset`, `cancelled`, `busy`, `closed`, `storage_error`, and `apply_failed`.
+Remote skin requests return `pending`; use their events for completion.
+
+```skript
+request skin of {_offlinePlayer} from username "Notch"
+request skin of player for {_viewer} from url "https://example.com/skin.png"
+```
+
+Names reject control/invisible format characters and empty visible text.
+Nametags retain the 16-character profile limit. `names.reject-reserved-aliases`
+rejects native selector/score-holder aliases by default.
+`names.reject-ambiguous-aliases` optionally rejects collisions with another
+visible player's account name or alias. Duplicate display names remain allowed
+by default, while ambiguous command aliases never resolve.
+
+`/skkaemok inspect <account name or UUID> [viewer account name or UUID]` shows the
+effective names, override sources, skin request status, usable aliases, temporary
+fields, and last result. It requires `skkaemok.inspect` or `skkaemok.op`. Unknown
+offline players can be inspected by UUID without a remote username lookup.
 
 ## Changeable name expressions
 
@@ -175,12 +298,10 @@ result; the configured delayed reapply handles normal late updates without a
 continuous packet fight.
 
 Per-viewer chat names are applied to outgoing protocol fields that expose the
-sender or decorated display component. Skkaemok leaves the signed player message
-body unchanged by default, preserving modern signed-chat semantics. Server or
-chat plugins that bake a name into an opaque/signed body may therefore retain
-their own rendering. The experimental
-`output-name-rewrite.rewrite-chat-message-content` option can rewrite exposed
-message components when a server explicitly accepts that tradeoff.
+sender or decorated display component. Skkaemok leaves signed and unsigned player message
+bodies unchanged. Server or chat plugins that bake a name into a message body
+may therefore retain their own rendering. The legacy
+`output-name-rewrite.rewrite-chat-message-content` option no longer rewrites bodies.
 
 ## Vanilla scoreboard teams
 

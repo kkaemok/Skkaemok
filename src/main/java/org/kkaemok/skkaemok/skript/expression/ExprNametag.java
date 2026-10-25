@@ -3,13 +3,14 @@ package org.kkaemok.skkaemok.skript.expression;
 import ch.njol.skript.Skript;
 import ch.njol.skript.classes.Changer.ChangeMode;
 import ch.njol.skript.lang.Expression;
-import ch.njol.skript.lang.ExpressionType;
 import ch.njol.skript.lang.SkriptParser;
 import ch.njol.skript.lang.util.SimpleExpression;
 import ch.njol.util.Kleenean;
+
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
-import org.kkaemok.skkaemok.service.NicknameService;
+import org.kkaemok.skkaemok.name.NicknameService;
+import org.kkaemok.skkaemok.skript.SyntaxRegistration;
 
 @SuppressWarnings("unchecked")
 public final class ExprNametag extends SimpleExpression<String> {
@@ -21,19 +22,20 @@ public final class ExprNametag extends SimpleExpression<String> {
 
     public static void bootstrap(NicknameService nicknameService) {
         service = nicknameService;
-        Skript.registerExpression(
+        SyntaxRegistration.expression(
                 ExprNametag.class,
                 String.class,
-                ExpressionType.PROPERTY,
                 "nametag of %player%",
                 "nametag of %player% for %player%",
-                "nametag of %player% for all players"
-        );
+                "nametag of %player% for all players");
     }
 
     @Override
-    public boolean init(Expression<?>[] expressions, int matchedPattern, Kleenean delayed,
-                        SkriptParser.ParseResult parseResult) {
+    public boolean init(
+            Expression<?>[] expressions,
+            int matchedPattern,
+            Kleenean delayed,
+            SkriptParser.ParseResult parseResult) {
         target = (Expression<Player>) expressions[0];
         viewerSpecific = matchedPattern == 1;
         if (viewerSpecific) {
@@ -49,16 +51,17 @@ public final class ExprNametag extends SimpleExpression<String> {
         if (targetPlayer == null || (viewerSpecific && viewerPlayer == null)) {
             return new String[0];
         }
-        String value = viewerSpecific
-                ? service.resolveNickname(targetPlayer, viewerPlayer)
-                : service.resolveNickname(targetPlayer);
-        return value == null ? new String[0] : new String[]{value};
+        String value =
+                viewerSpecific
+                        ? service.resolveNickname(targetPlayer, viewerPlayer)
+                        : service.resolveNickname(targetPlayer);
+        return value == null ? new String[0] : new String[] {value};
     }
 
     @Override
     public Class<?>[] acceptChange(ChangeMode mode) {
         return switch (mode) {
-            case SET -> new Class<?>[]{String.class};
+            case SET -> new Class<?>[] {String.class};
             case RESET, DELETE -> new Class<?>[0];
             default -> null;
         };
@@ -77,16 +80,29 @@ public final class ExprNametag extends SimpleExpression<String> {
             return;
         }
         if (mode == ChangeMode.SET && delta != null && delta.length > 0 && delta[0] != null) {
-            boolean valid = viewerSpecific
-                    ? service.setNickname(targetPlayer, viewerPlayer, String.valueOf(delta[0]))
-                    : service.setNickname(targetPlayer, String.valueOf(delta[0]));
+            boolean valid =
+                    viewerSpecific
+                            ? service.setNickname(
+                                    targetPlayer, viewerPlayer, String.valueOf(delta[0]))
+                            : service.setNickname(targetPlayer, String.valueOf(delta[0]));
             if (!valid) {
-                Skript.warning("Nametag must be 16 characters or fewer.");
+                Skript.warning(SyntaxRegistration.failure(targetPlayer, viewerPlayer));
             }
         }
     }
 
-    @Override public boolean isSingle() { return true; }
-    @Override public Class<? extends String> getReturnType() { return String.class; }
-    @Override public String toString(Event event, boolean debug) { return "nametag expression"; }
+    @Override
+    public boolean isSingle() {
+        return true;
+    }
+
+    @Override
+    public Class<? extends String> getReturnType() {
+        return String.class;
+    }
+
+    @Override
+    public String toString(Event event, boolean debug) {
+        return "nametag expression";
+    }
 }

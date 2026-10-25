@@ -1,41 +1,49 @@
 package org.kkaemok.skkaemok;
 
 import ch.njol.skript.Skript;
+
 import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.kkaemok.skkaemok.appearance.AppearanceService;
+import org.kkaemok.skkaemok.chat.AdvancementListener;
+import org.kkaemok.skkaemok.chat.ChatCommandDecorateListener;
+import org.kkaemok.skkaemok.chat.ChatNameManager;
+import org.kkaemok.skkaemok.chat.ChatNameService;
+import org.kkaemok.skkaemok.chat.DeathListener;
+import org.kkaemok.skkaemok.chat.NameRewriteService;
+import org.kkaemok.skkaemok.chat.OutgoingMessageRewriteListener;
 import org.kkaemok.skkaemok.command.SkkaemokCommand;
+import org.kkaemok.skkaemok.command.nickname.CommandInterceptor;
+import org.kkaemok.skkaemok.command.nickname.NicknameCommands;
+import org.kkaemok.skkaemok.dependency.PacketEventsInstaller;
+import org.kkaemok.skkaemok.display.NametagManager;
+import org.kkaemok.skkaemok.display.VanillaTeamService;
 import org.kkaemok.skkaemok.integration.LuckPermsHook;
 import org.kkaemok.skkaemok.integration.TabCustomNameBridge;
 import org.kkaemok.skkaemok.integration.TabIntegration;
-import org.kkaemok.skkaemok.listener.AdvancementListener;
-import org.kkaemok.skkaemok.listener.ChatCommandDecorateListener;
-import org.kkaemok.skkaemok.listener.CommandInterceptor;
-import org.kkaemok.skkaemok.listener.DeathListener;
-import org.kkaemok.skkaemok.listener.OutgoingMessageRewriteListener;
-import org.kkaemok.skkaemok.listener.PlayerSyncListener;
-import org.kkaemok.skkaemok.listener.UpdateNotifyListener;
-import org.kkaemok.skkaemok.service.ChatNameManager;
-import org.kkaemok.skkaemok.service.ChatNameService;
-import org.kkaemok.skkaemok.service.ChatNameStorage;
-import org.kkaemok.skkaemok.service.NameManager;
-import org.kkaemok.skkaemok.service.NameRewriteService;
-import org.kkaemok.skkaemok.service.NametagManager;
-import org.kkaemok.skkaemok.service.NameStorage;
-import org.kkaemok.skkaemok.service.NicknameService;
-import org.kkaemok.skkaemok.service.SkinManager;
-import org.kkaemok.skkaemok.service.SkinService;
-import org.kkaemok.skkaemok.service.SkinStorage;
-import org.kkaemok.skkaemok.service.TablistNameManager;
-import org.kkaemok.skkaemok.service.TablistNameService;
-import org.kkaemok.skkaemok.service.TablistNameStorage;
-import org.kkaemok.skkaemok.service.UpdateChecker;
-import org.kkaemok.skkaemok.service.VanillaTeamService;
-import org.kkaemok.skkaemok.service.ViewerNameManager;
-import org.kkaemok.skkaemok.service.ViewerNameStorage;
-import org.kkaemok.skkaemok.service.ViewerSkinStorage;
+import org.kkaemok.skkaemok.lifecycle.PlayerSyncListener;
+import org.kkaemok.skkaemok.name.NameManager;
+import org.kkaemok.skkaemok.name.NameSnapshots;
+import org.kkaemok.skkaemok.name.NicknameService;
+import org.kkaemok.skkaemok.name.ViewerNameManager;
+import org.kkaemok.skkaemok.skin.SkinManager;
+import org.kkaemok.skkaemok.skin.SkinService;
+import org.kkaemok.skkaemok.skript.AppearanceSyntax;
 import org.kkaemok.skkaemok.skript.NametagEffects;
+import org.kkaemok.skkaemok.skript.SyntaxRegistration;
+import org.kkaemok.skkaemok.storage.AppearanceStorage;
+import org.kkaemok.skkaemok.storage.ChatNameStorage;
+import org.kkaemok.skkaemok.storage.NameStorage;
+import org.kkaemok.skkaemok.storage.SkinStorage;
+import org.kkaemok.skkaemok.storage.TablistNameStorage;
+import org.kkaemok.skkaemok.storage.ViewerNameStorage;
+import org.kkaemok.skkaemok.storage.ViewerSkinStorage;
+import org.kkaemok.skkaemok.tablist.TablistNameManager;
+import org.kkaemok.skkaemok.tablist.TablistNameService;
+import org.kkaemok.skkaemok.update.UpdateChecker;
+import org.kkaemok.skkaemok.update.UpdateNotifyListener;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -43,6 +51,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class Skkaemok extends JavaPlugin {
+
+    private AppearanceService appearances;
+
+    public AppearanceService getAppearances() {
+        return appearances;
+    }
 
     private NameManager nameManager;
     private SkinManager skinManager;
@@ -59,22 +73,64 @@ public final class Skkaemok extends JavaPlugin {
     private OutgoingMessageRewriteListener outgoingMessageRewriteListener;
     private UpdateChecker updateChecker;
     private ViewerNameManager viewerNameManager;
-    private final ConcurrentHashMap<UUID, VanillaTeamService.TeamInfo> chatTeamStates = new ConcurrentHashMap<>();
+    private PacketEventsInstaller dependencyInstaller;
+    private NameSnapshots nameSnapshots;
+    private NicknameCommands nicknameCommands;
+    private final ConcurrentHashMap<UUID, VanillaTeamService.TeamInfo> chatTeamStates =
+            new ConcurrentHashMap<>();
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
 
-        int pluginId = 30391;
-        new Metrics(this, pluginId);
-
-        if (isPluginMissing("ProtocolLib")) {
-            getLogger().severe("ProtocolLib is required.");
+        if (isPluginMissing("packetevents")) {
+            if (getConfig().getBoolean("dependencies.packetevents.auto-download", true)) {
+                dependencyInstaller = new PacketEventsInstaller(this);
+                dependencyInstaller.install();
+            } else {
+                getLogger()
+                        .severe(
+                                "PacketEvents is required. Install its Spigot jar and restart the"
+                                        + " server.");
+                Bukkit.getPluginManager().disablePlugin(this);
+            }
+            return;
+        }
+        if (!Bukkit.getPluginManager().isPluginEnabled("packetevents")) {
+            getLogger()
+                    .severe(
+                            "PacketEvents is installed but disabled. Resolve its startup error and"
+                                    + " restart; the existing jar will not be replaced.");
             Bukkit.getPluginManager().disablePlugin(this);
             return;
         }
+        if (!PacketEventsInstaller.supportedVersion(
+                Bukkit.getPluginManager()
+                        .getPlugin("packetevents")
+                        .getDescription()
+                        .getVersion())) {
+            getLogger()
+                    .severe(
+                            "PacketEvents 2.14.0 or newer is required. Update the existing"
+                                    + " PacketEvents jar and restart.");
+            Bukkit.getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        int pluginId = 30391;
+        new Metrics(this, pluginId);
+
         if (isPluginMissing("Skript")) {
             getLogger().severe("Skript is required.");
+            Bukkit.getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        if (Skript.getVersion().compareTo(new ch.njol.skript.util.Version("2.17.1")) < 0) {
+            getLogger()
+                    .severe(
+                            "Skript 2.17.1 or newer is required. Update Skript and restart the"
+                                    + " server.");
             Bukkit.getPluginManager().disablePlugin(this);
             return;
         }
@@ -92,42 +148,92 @@ public final class Skkaemok extends JavaPlugin {
         this.luckPermsHook = new LuckPermsHook(this);
         this.vanillaTeamService = new VanillaTeamService();
         TabCustomNameBridge tabCustomNameBridge = new TabCustomNameBridge(this, tabIntegration);
-        this.nametagManager = new NametagManager(
-                this,
-                tabIntegration,
-                luckPermsHook,
-                tabCustomNameBridge,
-                nameManager,
-                skinManager,
-                tablistNameManager,
-                vanillaTeamService
-        );
+        this.nametagManager =
+                new NametagManager(
+                        this,
+                        tabIntegration,
+                        luckPermsHook,
+                        tabCustomNameBridge,
+                        nameManager,
+                        skinManager,
+                        tablistNameManager,
+                        vanillaTeamService);
         this.nicknameService = new NicknameService(nameManager, nametagManager, skinManager);
-        this.tablistNameService = new TablistNameService(nameManager, skinManager, nametagManager, tablistNameManager);
+        this.tablistNameService =
+                new TablistNameService(
+                        nameManager, skinManager, nametagManager, tablistNameManager);
         this.chatNameService = new ChatNameService(chatNameManager, vanillaTeamService, this);
         this.nametagManager.setVanillaTeamRefreshCallback(this::refreshVanillaTeamState);
         this.skinService = new SkinService(this, nameManager, skinManager, nametagManager);
-        this.nameRewriteService = new NameRewriteService(chatNameManager, luckPermsHook, vanillaTeamService, this);
+        this.nameRewriteService =
+                new NameRewriteService(chatNameManager, luckPermsHook, vanillaTeamService, this);
+        this.nameSnapshots =
+                new NameSnapshots(
+                        this, nameManager, chatNameManager, viewerNameManager, nameRewriteService);
+        try {
+            this.appearances =
+                    new AppearanceService(
+                            this,
+                            nameManager,
+                            chatNameManager,
+                            tablistNameManager,
+                            skinManager,
+                            skinService,
+                            chatNameService,
+                            nametagManager,
+                            nameSnapshots,
+                            new AppearanceStorage(getDataFolder().toPath()));
+            nicknameService.setAppearanceService(appearances);
+            chatNameService.setAppearanceService(appearances);
+            tablistNameService.setAppearanceService(appearances);
+            skinService.setAppearanceService(appearances);
+            appearances.start();
+        } catch (java.io.IOException ex) {
+            getLogger()
+                    .log(
+                            java.util.logging.Level.SEVERE,
+                            "Could not load appearance data; existing files have been preserved",
+                            ex);
+            Bukkit.getPluginManager().disablePlugin(this);
+            return;
+        }
+        this.nicknameCommands = new NicknameCommands(this, nameSnapshots);
+        nicknameCommands.start();
         this.updateChecker = new UpdateChecker(this);
-        luckPermsHook.registerMetaListener(uuid -> {
-            var player = Bukkit.getPlayer(uuid);
-            if (player != null) {
-                chatNameService.applyStoredChatName(player);
-                nicknameService.refreshDisplay(player);
-            }
-        });
+        luckPermsHook.registerMetaListener(
+                uuid -> {
+                    var player = Bukkit.getPlayer(uuid);
+                    if (player != null) {
+                        chatNameService.applyStoredChatName(player);
+                        nicknameService.refreshDisplay(player);
+                        nameSnapshots.refresh();
+                    }
+                });
 
-        Bukkit.getPluginManager().registerEvents(new ChatCommandDecorateListener(this, nameRewriteService), this);
+        Bukkit.getPluginManager()
+                .registerEvents(new ChatCommandDecorateListener(this, nameRewriteService), this);
         Bukkit.getPluginManager().registerEvents(new CommandInterceptor(chatNameManager), this);
         Bukkit.getPluginManager().registerEvents(new DeathListener(nameRewriteService), this);
         Bukkit.getPluginManager().registerEvents(new AdvancementListener(nameRewriteService), this);
-        Bukkit.getPluginManager().registerEvents(new PlayerSyncListener(nameManager, skinManager, nametagManager, tablistNameManager, chatNameService, skinService), this);
-        Bukkit.getPluginManager().registerEvents(new UpdateNotifyListener(this, updateChecker), this);
+        Bukkit.getPluginManager()
+                .registerEvents(
+                        new PlayerSyncListener(
+                                nameManager,
+                                skinManager,
+                                nametagManager,
+                                tablistNameManager,
+                                chatNameService,
+                                skinService),
+                        this);
+        Bukkit.getPluginManager()
+                .registerEvents(new UpdateNotifyListener(this, updateChecker), this);
         registerOutgoingMessageRewriteListener();
         updateChecker.start();
 
-        Skript.registerAddon(this);
-        NametagEffects.register(this, nicknameService, skinService, tablistNameService, chatNameService);
+        SyntaxRegistration.initialize(this);
+        NametagEffects.register(
+                this, nicknameService, skinService, tablistNameService, chatNameService);
+        AppearanceSyntax.register(appearances, skinService);
 
         registerCommands();
         refreshOnlinePlayers();
@@ -135,6 +241,9 @@ public final class Skkaemok extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (dependencyInstaller != null) dependencyInstaller.close();
+        if (nicknameCommands != null) nicknameCommands.close();
+        if (nameSnapshots != null) nameSnapshots.close();
         unregisterOutgoingMessageRewriteListener();
         if (updateChecker != null) {
             updateChecker.stop();
@@ -146,6 +255,7 @@ public final class Skkaemok extends JavaPlugin {
             nametagManager.close();
         }
         if (skinService != null) skinService.close();
+        if (appearances != null) appearances.close();
         if (nameManager != null) {
             nameManager.saveNow();
         }
@@ -170,6 +280,18 @@ public final class Skkaemok extends JavaPlugin {
 
     public void reloadSkkaemok() {
         reloadConfig();
+        if (appearances != null) {
+            try {
+                appearances.reload();
+            } catch (java.io.IOException ex) {
+                getLogger()
+                        .log(
+                                java.util.logging.Level.SEVERE,
+                                "Could not reload appearance presets; the previous presets and"
+                                        + " existing file have been preserved",
+                                ex);
+            }
+        }
         if (luckPermsHook != null) {
             luckPermsHook.reload();
         }
@@ -205,6 +327,7 @@ public final class Skkaemok extends JavaPlugin {
             updateChecker.reload();
         }
         refreshOnlinePlayers();
+        if (nameSnapshots != null) nameSnapshots.reload();
     }
 
     private void registerOutgoingMessageRewriteListener() {
@@ -215,7 +338,7 @@ public final class Skkaemok extends JavaPlugin {
         if (!getConfig().getBoolean("output-name-rewrite.enabled", true)) {
             return;
         }
-        outgoingMessageRewriteListener = new OutgoingMessageRewriteListener(this, nameRewriteService);
+        outgoingMessageRewriteListener = new OutgoingMessageRewriteListener(this, nameSnapshots);
         outgoingMessageRewriteListener.register();
         getLogger().info("Outgoing message name rewrite has been enabled.");
     }
@@ -229,21 +352,29 @@ public final class Skkaemok extends JavaPlugin {
     }
 
     private void refreshOnlinePlayers() {
-        if (nameManager == null || skinManager == null || nametagManager == null
-                || tablistNameManager == null || chatNameService == null) {
+        if (nameManager == null
+                || skinManager == null
+                || nametagManager == null
+                || tablistNameManager == null
+                || chatNameService == null) {
             return;
         }
-        Bukkit.getOnlinePlayers().forEach(player -> {
-            if (skinService != null) skinService.applyStoredSkin(player);
-            chatNameService.applyStoredChatName(player);
-            chatTeamStates.put(player.getUniqueId(), vanillaTeamService.getInfo(player));
-            // Also reconcile resets loaded from disk/configuration on reload.
-            if (nameManager.hasAnyNickname(player) || skinManager.hasAnyCustomSkin(player)
-                    || tablistNameManager.hasAnyTablistName(player) || nametagManager.hasManagedDecoration(player)
-                    || nametagManager.hasClientState(player)) {
-                nametagManager.updateForAllViewers(player);
-            }
-        });
+        Bukkit.getOnlinePlayers()
+                .forEach(
+                        player -> {
+                            if (skinService != null) skinService.applyStoredSkin(player);
+                            chatNameService.applyStoredChatName(player);
+                            chatTeamStates.put(
+                                    player.getUniqueId(), vanillaTeamService.getInfo(player));
+                            // Also reconcile resets loaded from disk/configuration on reload.
+                            if (nameManager.hasAnyNickname(player)
+                                    || skinManager.hasAnyCustomSkin(player)
+                                    || tablistNameManager.hasAnyTablistName(player)
+                                    || nametagManager.hasManagedDecoration(player)
+                                    || nametagManager.hasClientState(player)) {
+                                nametagManager.updateForAllViewers(player);
+                            }
+                        });
     }
 
     private void refreshVanillaTeamState() {
@@ -252,6 +383,7 @@ public final class Skkaemok extends JavaPlugin {
         }
         nametagManager.refreshVanillaTeams();
 
+        boolean namesChanged = false;
         Set<UUID> onlinePlayers = new HashSet<>();
         for (var player : Bukkit.getOnlinePlayers()) {
             UUID playerId = player.getUniqueId();
@@ -260,9 +392,11 @@ public final class Skkaemok extends JavaPlugin {
             VanillaTeamService.TeamInfo previous = chatTeamStates.put(playerId, current);
             if (!current.equals(previous) && chatNameService != null) {
                 chatNameService.applyStoredChatName(player);
+                namesChanged = true;
             }
         }
         chatTeamStates.keySet().retainAll(onlinePlayers);
+        if (namesChanged && nameSnapshots != null) nameSnapshots.refresh();
     }
 
     private void registerCommands() {
@@ -275,5 +409,4 @@ public final class Skkaemok extends JavaPlugin {
         command.setExecutor(executor);
         command.setTabCompleter(executor);
     }
-
 }

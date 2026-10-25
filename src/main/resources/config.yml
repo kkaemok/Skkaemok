@@ -44,6 +44,20 @@ vanilla-team-sync:
   # Set to 0 to disable the fallback. Values below 10 are clamped to 10 ticks.
   fallback-interval-ticks: 20
 
+dependencies:
+  packetevents:
+    # Download the latest stable official Spigot jar only when missing; restart once after installation.
+    auto-download: true
+
+nickname-commands:
+  debug: false
+
+names:
+  # These aliases cannot be used as player names in native commands.
+  reject-reserved-aliases: true
+  # Duplicate display names remain allowed by default; ambiguous aliases never resolve.
+  reject-ambiguous-aliases: false
+
 # Formatting mode: auto | legacy | minimessage
 format:
   luckperms: auto
@@ -64,13 +78,12 @@ output:
   # %lp_suffix% add LuckPerms metadata when desired.
   tablist: "%prefix%%nickname%%suffix%"
 
-# Rewrites command/system output names to chat names.
-# SYSTEM_CHAT command output is rewritten like nicknames; normal chat message content is not rewritten.
+# Rewrites identified player labels in command feedback and chat metadata.
 output-name-rewrite:
   enabled: true
   debug: false
-  # Leave signed player-chat content intact. Skkaemok still rewrites the
-  # recipient-specific sender/decorated-name fields exposed by the protocol.
+  # Legacy key retained for configuration compatibility; message bodies stay intact.
+  # Only sender/recipient labels are rewritten in signed chat packets.
   rewrite-chat-message-content: false
   chat-command-decorate:
     # Experimental fallback for Paper chat-command decoration.

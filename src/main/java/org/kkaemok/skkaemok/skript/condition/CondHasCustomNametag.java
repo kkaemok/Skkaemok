@@ -1,13 +1,14 @@
 package org.kkaemok.skkaemok.skript.condition;
 
-import ch.njol.skript.Skript;
 import ch.njol.skript.lang.Condition;
 import ch.njol.skript.lang.Expression;
 import ch.njol.skript.lang.SkriptParser;
 import ch.njol.util.Kleenean;
+
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
-import org.kkaemok.skkaemok.service.NicknameService;
+import org.kkaemok.skkaemok.name.NicknameService;
+import org.kkaemok.skkaemok.skript.SyntaxRegistration;
 
 @SuppressWarnings("unchecked")
 public final class CondHasCustomNametag extends Condition {
@@ -18,7 +19,8 @@ public final class CondHasCustomNametag extends Condition {
 
     public static void bootstrap(NicknameService nicknameService) {
         service = nicknameService;
-        Skript.registerCondition(CondHasCustomNametag.class,
+        SyntaxRegistration.condition(
+                CondHasCustomNametag.class,
                 "%player% has [a] custom nametag",
                 "%player% does(n't| not) have [a] custom nametag",
                 "%player% has [a] custom nametag for %player%",
@@ -26,8 +28,11 @@ public final class CondHasCustomNametag extends Condition {
     }
 
     @Override
-    public boolean init(Expression<?>[] expressions, int matchedPattern, Kleenean delayed,
-                        SkriptParser.ParseResult parseResult) {
+    public boolean init(
+            Expression<?>[] expressions,
+            int matchedPattern,
+            Kleenean delayed,
+            SkriptParser.ParseResult parseResult) {
         target = (Expression<Player>) expressions[0];
         viewerSpecific = matchedPattern >= 2;
         if (viewerSpecific) viewer = (Expression<Player>) expressions[1];
@@ -40,11 +45,15 @@ public final class CondHasCustomNametag extends Condition {
         Player targetPlayer = target.getSingle(event);
         Player viewerPlayer = viewerSpecific ? viewer.getSingle(event) : null;
         if (targetPlayer == null || (viewerSpecific && viewerPlayer == null)) return false;
-        boolean result = viewerSpecific
-                ? service.hasCustomNickname(targetPlayer, viewerPlayer)
-                : service.hasCustomNickname(targetPlayer);
+        boolean result =
+                viewerSpecific
+                        ? service.hasCustomNickname(targetPlayer, viewerPlayer)
+                        : service.hasCustomNickname(targetPlayer);
         return isNegated() != result;
     }
 
-    @Override public String toString(Event event, boolean debug) { return "has custom nametag"; }
+    @Override
+    public String toString(Event event, boolean debug) {
+        return "has custom nametag";
+    }
 }

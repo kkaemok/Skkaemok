@@ -1,13 +1,14 @@
 package org.kkaemok.skkaemok.skript.condition;
 
-import ch.njol.skript.Skript;
 import ch.njol.skript.lang.Condition;
 import ch.njol.skript.lang.Expression;
 import ch.njol.skript.lang.SkriptParser;
 import ch.njol.util.Kleenean;
+
 import org.bukkit.entity.Player;
 import org.bukkit.event.Event;
-import org.kkaemok.skkaemok.service.ChatNameService;
+import org.kkaemok.skkaemok.chat.ChatNameService;
+import org.kkaemok.skkaemok.skript.SyntaxRegistration;
 
 @SuppressWarnings("unchecked")
 public final class CondHasCustomChatName extends Condition {
@@ -18,7 +19,8 @@ public final class CondHasCustomChatName extends Condition {
 
     public static void bootstrap(ChatNameService chatNameService) {
         service = chatNameService;
-        Skript.registerCondition(CondHasCustomChatName.class,
+        SyntaxRegistration.condition(
+                CondHasCustomChatName.class,
                 "%player% has [a] custom chat name",
                 "%player% does(n't| not) have [a] custom chat name",
                 "%player% has [a] custom chat name for %player%",
@@ -26,8 +28,11 @@ public final class CondHasCustomChatName extends Condition {
     }
 
     @Override
-    public boolean init(Expression<?>[] expressions, int matchedPattern, Kleenean delayed,
-                        SkriptParser.ParseResult parseResult) {
+    public boolean init(
+            Expression<?>[] expressions,
+            int matchedPattern,
+            Kleenean delayed,
+            SkriptParser.ParseResult parseResult) {
         target = (Expression<Player>) expressions[0];
         viewerSpecific = matchedPattern >= 2;
         if (viewerSpecific) viewer = (Expression<Player>) expressions[1];
@@ -40,11 +45,15 @@ public final class CondHasCustomChatName extends Condition {
         Player targetPlayer = target.getSingle(event);
         Player viewerPlayer = viewerSpecific ? viewer.getSingle(event) : null;
         if (targetPlayer == null || (viewerSpecific && viewerPlayer == null)) return false;
-        boolean result = viewerSpecific
-                ? service.hasCustomChatName(targetPlayer, viewerPlayer)
-                : service.hasCustomChatName(targetPlayer);
+        boolean result =
+                viewerSpecific
+                        ? service.hasCustomChatName(targetPlayer, viewerPlayer)
+                        : service.hasCustomChatName(targetPlayer);
         return isNegated() != result;
     }
 
-    @Override public String toString(Event event, boolean debug) { return "has custom chat name"; }
+    @Override
+    public String toString(Event event, boolean debug) {
+        return "has custom chat name";
+    }
 }
